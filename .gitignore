@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/
+*.log
+celerybeat-schedule
+*.db
+.DS_Store
+*.key
+*.crt
+*.pem

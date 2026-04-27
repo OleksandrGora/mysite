@@ -1,0 +1,15 @@
+[Unit]
+Description=Celery Worker - Doc Generator
+After=network.target redis.service
+
+[Service]
+User=openclaw
+Group=openclaw
+WorkingDirectory=/home/openclaw/mysite
+EnvironmentFile=/home/openclaw/mysite/.env
+ExecStart=/home/openclaw/mysite/venv/bin/celery -A celery_worker worker --loglevel=info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

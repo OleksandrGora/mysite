@@ -202,6 +202,33 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
     # Save page count before closing
     page_count = len(doc)
     
+    # Extract tables from PDF
+    tables = []
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        try:
+            tabs = page.find_tables()
+            for tab_idx, tab in enumerate(tabs.tables):
+                if tab.col_count < 4 or tab.row_count < 2:
+                    continue
+                rows_data = []
+                for row in tab.extract():
+                    clean_row = [str(cell).strip().replace('\n', ' ') if cell else '' for cell in row]
+                    if any(clean_row):
+                        rows_data.append(clean_row)
+                if rows_data:
+                    tables.append({
+                        'index': len(tables),
+                        'page': page_num + 1,
+                        'rows': len(rows_data),
+                        'columns': tab.col_count,
+                        'headers': rows_data[0] if rows_data else [],
+                        'has_header_row': True,
+                        'sample_data': rows_data[1:3]
+                    })
+        except Exception as e:
+            logger.warning(f"Could not extract tables from page {page_num + 1}: {e}")
+    
     doc.close()
     
     # Build result similar to DOCX structure
@@ -214,7 +241,7 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
             {'title': 'Section 1', 'level': 0},
             {'title': 'Section 2', 'level': 0}
         ],
-        'tables': [],  # PDF tables harder to detect accurately
+        'tables': tables,  # PDF tables harder to detect accurately
         'paragraph_count': len(full_text),
         'has_headers': len(sections) > 0
     }

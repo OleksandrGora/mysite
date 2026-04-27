@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import time
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
 from werkzeug.utils import secure_filename
@@ -76,7 +77,6 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
     Process document generation task.
     Stage 3: Parsing template and sources.
     """
-    import time
     from loguru import logger
     
     task_dir = os.path.join(data_dir, 'tasks', task_id)
@@ -98,11 +98,7 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
             task_data.update(extra)
         if status == 'completed':
             task_data['completed_at'] = datetime.utcnow().isoformat()
-            # Create output file (placeholder for now)
-            output_dir = os.path.join(task_dir, 'output')
-            os.makedirs(output_dir, exist_ok=True)
-            result_file = os.path.join(output_dir, 'result.docx')
-            task_data['output_file'] = result_file
+            # Output filename will be set later in the process
         
         with open(task_json_path, 'w') as f:
             json.dump(task_data, f, indent=2)
@@ -155,8 +151,78 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
                      message=f"Sources parsed: {len(source_names)} files, {total_chars} total chars" + (f", {embedded_chunks} RAG chunks" if use_rag else ""),
                      extra={'parsed_sources': source_names, 'total_source_chars': total_chars, 'rag_enabled': use_rag, 'rag_chunks': embedded_chunks})
         
-        # Step 3: Create document plan using LLM (Stage 4 - Planning)
-        update_status('processing', progress=55, message='Creating document plan with AI...')
+        # Step 3: LLM Analysis (pre-planning insights)
+        update_status('processing', progress=52, message='Running LLM analysis of template and sources...')
+        
+        try:
+            # Import LLM client
+            from .config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE
+            from google import genai
+            
+            client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+            
+            if client:
+                # Helper function for LLM calls with retry logic
+                def llm_call_with_retry(prompt, step_name, max_retries=3, base_delay=10):
+                    for attempt in range(max_retries):
+                        try:
+                            logger.info(f"[{task_id}] {step_name}: Attempt {attempt + 1}/{max_retries}")
+                            response = client.models.generate_content(
+                                model=REASONING_MODEL,
+                                contents=prompt,
+                                config={"temperature": TEMPERATURE}
+                            )
+                            return response
+                        except Exception as e:
+                            error_str = str(e)
+                            if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str:
+                                if attempt < max_retries - 1:
+                                    delay = base_delay * (2 ** attempt)
+                                    logger.warning(f"[{task_id}] {step_name}: 429 error, waiting {delay}s before retry...")
+                                    time.sleep(delay)
+                                    continue
+                            raise
+                    raise Exception(f"Max retries exceeded for {step_name}")
+                
+                # LLM Analysis - get insights before planning
+                update_status('processing', progress=53, message='LLM: Analyzing how to fill template with source data...')
+                
+                first_prompt = f"""Проаналізуй структуру шаблону та джерел.
+
+Шаблон має {len(template_structure.get('sections', []))} секцій та {len(template_structure.get('tables', []))} таблиць.
+
+Користувацький запит: {user_prompt if user_prompt else 'Створити документ відповідно до джерел'}
+
+Поверни детальний план заповнення кожної секції та таблиці даними з джерел.
+"""
+                
+                response1 = llm_call_with_retry(first_prompt, "LLM Analysis")
+                first_llm_response = response1.text
+                logger.info(f"[{task_id}] LLM analysis: {len(first_llm_response)} chars")
+                
+                # Save LLM analysis for reference (can be used by planning)
+                analysis_path = os.path.join(task_dir, 'llm_analysis.json')
+                with open(analysis_path, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'analysis': first_llm_response,
+                        'user_prompt': user_prompt,
+                        'template_sections': len(template_structure.get('sections', [])),
+                        'template_tables': len(template_structure.get('tables', []))
+                    }, f, ensure_ascii=False, indent=2)
+                
+                update_status('processing', progress=55, message='LLM analysis completed')
+                
+                # Wait between LLM calls to avoid rate limiting
+                logger.info(f"[{task_id}] Waiting 30s between LLM calls...")
+                time.sleep(30)
+            else:
+                logger.warning(f"[{task_id}] No API key, skipping LLM pre-analysis")
+                
+        except Exception as e:
+            logger.warning(f"[{task_id}] LLM analysis failed: {e}, continuing with standard workflow")
+        
+        # Step 4: Create document plan using LLM (Stage 4 - Planning)
+        update_status('processing', progress=56, message='Creating document plan with AI...')
         
         try:
             document_plan = create_document_plan(template_structure, sources_data, task_id, user_prompt)
@@ -168,12 +234,16 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
                          extra={'plan_sections': len(document_plan.sections), 
                                 'plan_tables': len(document_plan.tables),
                                 'document_title': document_plan.document_title})
+            
+            # Wait between planning and generation to avoid rate limiting
+            logger.info(f"[{task_id}] Waiting 30s before content generation...")
+            time.sleep(30)
         except Exception as e:
             logger.error(f"[{task_id}] Planning failed: {e}")
             update_status('failed', error=f"Failed to create plan: {e}")
             raise
         
-        # Step 4: Generate content (Stage 4 - Generation)
+        # Step 5: Generate content
         update_status('processing', progress=70, message='Generating document content with AI...')
         
         def progress_callback(completed, total, message):
@@ -235,7 +305,15 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
         
         output_dir = os.path.join(task_dir, 'output')
         os.makedirs(output_dir, exist_ok=True)
-        result_file = os.path.join(output_dir, 'result.docx')
+        
+        # Generate output filename: source name + " новий"
+        if sources_paths:
+            first_source_name = os.path.splitext(os.path.basename(sources_paths[0]))[0]
+            output_filename = f"{first_source_name} новий.docx"
+        else:
+            output_filename = "result.docx"
+        
+        result_file = os.path.join(output_dir, output_filename)
         
         try:
             # Try smart document building (matching sections to template)
@@ -271,7 +349,9 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
                             'template_tables': len(template_structure.get('tables', [])),
                             'sources_parsed': len(sources_data),
                             'generated_words': generated_content.get('total_word_count', 0),
-                            'generated_table_rows': generated_content.get('total_table_rows', 0)})
+                            'generated_table_rows': generated_content.get('total_table_rows', 0),
+                            'output_file': result_file,
+                            'output_filename': os.path.basename(result_file)})
         
         logger.success(f"Task {task_id} completed successfully")
         
@@ -552,4 +632,6 @@ def download_result(task_id):
     if not output_file or not os.path.exists(output_file):
         return jsonify({'error': 'Output file not found'}), 404
     
-    return send_file(output_file, as_attachment=True, download_name='result.docx')
+    # Use the actual filename for download
+    download_name = os.path.basename(output_file)
+    return send_file(output_file, as_attachment=True, download_name=download_name)

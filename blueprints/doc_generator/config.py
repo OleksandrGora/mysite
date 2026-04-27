@@ -11,7 +11,7 @@ DATA_DIR = os.getenv('DATA_DIR', '/home/openclaw/mysite/data')
 
 # LLM Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-flash')
+REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-flash-lite')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
 
 # Generation Settings

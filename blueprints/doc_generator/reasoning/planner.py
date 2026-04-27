@@ -38,8 +38,25 @@ def analyze_sections_with_llm(template_path: str) -> Tuple[List[Dict[str, Any]],
     if template_path.lower().endswith('.pdf'):
         doc = fitz.open(template_path)
         full_text = ""
-        for page in doc:
+        for page_num, page in enumerate(doc):
             full_text += page.get_text() + "\n\n"
+            # Витягуємо таблиці
+            try:
+                tabs = page.find_tables()
+                for tab_idx, tab in enumerate(tabs.tables):
+                    if tab.col_count < 4:
+                        continue
+                    if tab.row_count < 2:
+                        continue
+                    full_text += f"\n[ТАБЛИЦЯ на сторінці {page_num + 1}, таблиця {tab_idx + 1}]\n"
+                    for row in tab.extract():
+                        clean_row = [str(cell).strip().replace('\n', ' ') if cell else '' for cell in row]
+                        # Пропускаємо порожні рядки
+                        if any(clean_row):
+                            full_text += ' | '.join(clean_row) + "\n"
+                    full_text += "\n"
+            except Exception as e:
+                logger.warning(f"Could not extract tables from page {page_num + 1}: {e}")
         doc.close()
     else:
         # For DOCX, extract text using python-docx
@@ -288,8 +305,11 @@ def build_planner_prompt(
     # Build sources summary
     sources_summary_parts = []
     for name, data in sources_data.items():
-        preview = data.get('text', '')[:500].replace('\n', ' ')
-        sources_summary_parts.append(f"- {name} ({data.get('char_count', 0)} chars): {preview}...")
+        full_text = data.get('text', '')
+        # Обрізати якщо дуже велике (лімітом є токени моделі, ~800K для flash)
+        if len(full_text) > 80000:
+            full_text = full_text[:80000] + "\n...[текст обрізано]..."
+        sources_summary_parts.append(f"=== {name} ===\n{full_text}\n")
     
     sources_text = '\n'.join(sources_summary_parts)
     
@@ -350,13 +370,15 @@ def build_planner_prompt(
    - estimated_rows: скільки рядків потрібно (1-20)
    - data_source_hint: звідки брати дані
 
-7. **sources_summary** — короткий опис кожного джерела (1-2 речення)
+7. **sources_summary** — короткий опис кожного джерела у форматі словника: {{"filename.pdf": "опис джерела", ...}}
 
 ВАЖЛИВО:
 - Всі тексти мають бути українською мовою (діловий стиль)
 - План має бути реалістичним — не більше 3-5 рядків в таблиці, 100-300 слів в секції
 - Якщо даних в джерелах не вистачає — вкажи це в notes
 - Поверни ТІЛЬКИ JSON, без додаткових пояснень
+- Використовуй текст джерела для наповнення кожної секції дослівно або максимально близько до оригіналу.
+- Твоє завдання — точно відтворити структуру шаблона, наповнити змістом з джерела
 
 Приклад структури відповіді:
 ```json
@@ -367,7 +389,7 @@ def build_planner_prompt(
   "overall_tone": "formal",
   "sections": [...],
   "tables": [...],
-  "sources_summary": "..."
+  "sources_summary": {{"source1.pdf": "Опис першого джерела", "source2.pdf": "Опис другого джерела"}}
 }}
 ```
 

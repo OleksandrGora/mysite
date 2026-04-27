@@ -321,23 +321,43 @@ def analyze_template():
     
     logger.info(f"[ANALYZE] Saved temp file: {template_path}")
     
+    # Extract page count for PDF
+    page_count = 0
+    if template_path.lower().endswith('.pdf'):
+        import fitz
+        doc = fitz.open(template_path)
+        page_count = len(doc)
+        doc.close()
+        logger.info(f"[ANALYZE] PDF page count: {page_count}")
+    
     try:
         # Get user prompt if provided
         user_prompt = request.form.get('prompt', '').strip()
         logger.info(f"[ANALYZE] User prompt length: {len(user_prompt)}")
         
-        # TEMPORARILY DISABLE LLM TO PREVENT OOM
-        # Use local parsing directly
-        logger.info("[ANALYZE] Using local parser (LLM disabled to prevent OOM)")
-        template_structure = parse_template(template_path)
-        template_structure['analysis_method'] = 'local'
+        # Use LLM-based section analysis only
+        from .reasoning.planner import analyze_sections_with_llm, build_planner_prompt
         
-        logger.info(f"[ANALYZE] Local parser found {len(template_structure.get('sections', []))} sections")
+        logger.info("[ANALYZE] Using LLM for section analysis")
+        llm_sections, chunk_info = analyze_sections_with_llm(template_path)
+        logger.info(f"[ANALYZE] Template analysis: {chunk_info}")
         
-        # Build prompt that would be sent to LLM
-        from .reasoning.planner import build_planner_prompt
+        template_structure = {
+            'title': os.path.basename(template_path),
+            'source_file': template_path,
+            'is_pdf': template_path.lower().endswith('.pdf'),
+            'page_count': page_count,
+            'sections': llm_sections if llm_sections else [],
+            'tables': [],
+            'analysis_method': 'llm'
+        }
         
-        # Mock sources data for preview
+        if llm_sections:
+            logger.info(f"[ANALYZE] LLM found {len(llm_sections)} sections")
+        else:
+            logger.warning("[ANALYZE] LLM returned no sections, returning empty structure")
+        
+        # Build prompt that would be sent to LLM for document generation
         mock_sources = {
             'example_source.pdf': {
                 'text': 'Приклад тексту джерела для демонстрації структури промпту...',
@@ -358,7 +378,8 @@ def analyze_template():
             'template_structure': template_structure,
             'prompt_preview': prompt_preview,
             'user_prompt': user_prompt,
-            'analysis_method': template_structure.get('analysis_method', 'unknown')
+            'analysis_method': template_structure.get('analysis_method', 'unknown'),
+            'chunk_info': chunk_info
         })
         
     except Exception as e:

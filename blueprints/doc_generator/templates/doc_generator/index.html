@@ -385,9 +385,17 @@
                 logDebug(`Метод аналізу: ${result.analysis_method === 'llm' ? 'LLM (Gemini)' : 'Локальний парсер'}`, 'info');
                 logDebug(`Назва: ${result.template_structure.title}`, 'info');
                 logDebug(`Тип: ${result.template_structure.is_pdf ? 'PDF' : 'DOCX'}`, 'info');
-                logDebug(`Сторінок: ${result.template_structure.pages || 'N/A'}`, 'info');
+                logDebug(`Сторінок: ${result.template_structure.page_count || 'N/A'}`, 'info');
                 logDebug(`Секцій: ${result.template_structure.sections.length}`, 'info');
                 logDebug(`Таблиць: ${result.template_structure.tables.length}`, 'info');
+                
+                // Log chunk processing info
+                if (result.chunk_info) {
+                    logDebug('--- Обробка частин ---', 'info');
+                    logDebug(`Всього частин: ${result.chunk_info.total_chunks}`, 'info');
+                    logDebug(`Загально символів: ${result.chunk_info.total_chars}`, 'info');
+                    logDebug(`Знайдено секцій: ${result.chunk_info.sections_found}`, 'info');
+                }
                 
                 // Log sections
                 if (result.template_structure.sections.length > 0) {
@@ -397,13 +405,7 @@
                     });
                 }
                 
-                // Log prompt preview
-                logDebug('=== ПРОМПТ ДЛЯ LLM ===', 'warning');
-                logDebug(result.prompt_preview, 'info');
-                
-                if (result.user_prompt) {
-                    logDebug(`Користувацький промпт: ${result.user_prompt}`, 'info');
-                }
+                logDebug('=== АНАЛІЗ ЗАВЕРШЕНО ===', 'success');
                 
             } catch (e) {
                 logDebug(`Помилка аналізу: ${e.message}`, 'error');

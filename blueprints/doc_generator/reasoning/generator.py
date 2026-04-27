@@ -187,18 +187,14 @@ def generate_section_content(
     
     prompt = build_section_prompt(section_plan, sources_text, document_context, user_prompt)
     
-    model = genai.GenerativeModel(REASONING_MODEL)
-    
     try:
-        # Use basic parameters compatible with all Google models
-        generation_config = {
-            "temperature": TEMPERATURE,
-            "candidate_count": 1
-        }
+        if not client:
+            raise ValueError("GEMINI_API_KEY not configured")
         
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config
+        response = client.models.generate_content(
+            model=REASONING_MODEL,
+            contents=prompt,
+            config={"temperature": TEMPERATURE}
         )
         
         content = response.text.strip()
@@ -264,18 +260,14 @@ def generate_table_data(
     
     prompt = build_table_prompt(table_plan, sources_text, document_context)
     
-    model = genai.GenerativeModel(REASONING_MODEL)
-    
     try:
-        # Use basic parameters compatible with all Google models
-        generation_config = {
-            "temperature": 0.1,  # Lower for structured data
-            "candidate_count": 1
-        }
+        if not client:
+            raise ValueError("GEMINI_API_KEY not configured")
         
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config
+        response = client.models.generate_content(
+            model=REASONING_MODEL,
+            contents=prompt,
+            config={"temperature": 0.1}  # Lower for structured data
         )
         
         # Parse JSON response

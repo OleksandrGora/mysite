@@ -7,8 +7,9 @@ for filling each section and table with appropriate content.
 import json
 import os
 import gc
+import time
 import fitz  # PyMuPDF for PDF text extraction
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 from loguru import logger
 
@@ -19,17 +20,17 @@ from ..config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
-def analyze_sections_with_llm(template_path: str) -> List[Dict[str, Any]]:
+def analyze_sections_with_llm(template_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Use LLM to analyze document template and extract sections.
-    
+
     For large documents, splits text into chunks and processes each chunk separately.
-    
+
     Args:
         template_path: Path to template file (DOCX or PDF)
-        
+
     Returns:
-        List of sections with title, level, and page info
+        Tuple of (sections list, chunk processing info dict)
     """
     logger.info(f"Analyzing sections with LLM: {template_path}")
     
@@ -46,35 +47,40 @@ def analyze_sections_with_llm(template_path: str) -> List[Dict[str, Any]]:
         doc = Document(template_path)
         full_text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
     
-    # Chunk size for LLM (characters) - smaller for analyze to prevent OOM
-    chunk_size = 3000
+    # Chunk size for LLM (characters)
+    chunk_size = 500000
     overlap = 300  # Overlap between chunks to avoid cutting sections
-    max_chunks = 3  # Limit chunks for analyze endpoint to prevent timeout/OOM
     
     # If text is small enough, process in one go
     if len(full_text) <= chunk_size:
-        return _analyze_single_chunk(full_text, 0)
+        logger.info(f"Document size {len(full_text)} chars, processing in single chunk")
+        sections = _analyze_single_chunk(full_text, 0)
+        chunk_info = {'total_chunks': 1, 'total_chars': len(full_text), 'sections_found': len(sections)}
+        return sections, chunk_info
     
     # Split into chunks with overlap
     chunks = []
     start = 0
     chunk_num = 0
+    total_chars = len(full_text)
     
-    while start < len(full_text) and chunk_num < max_chunks:
+    while start < total_chars:
         end = start + chunk_size
         chunk = full_text[start:end]
-        chunks.append((chunk, chunk_num))
+        chunk_start_pct = (start / total_chars) * 100
+        chunk_end_pct = (end / total_chars) * 100
+        chunks.append((chunk, chunk_num, chunk_start_pct, chunk_end_pct))
         start = end - overlap
         chunk_num += 1
     
-    logger.info(f"Document split into {len(chunks)} chunks for analysis (limited to {max_chunks})")
+    logger.info(f"Document split into {len(chunks)} chunks (total {total_chars} chars)")
     
     # Process each chunk and merge results
     all_sections = []
     seen_titles = set()  # To avoid duplicates from overlapping chunks
     
-    for chunk_text, chunk_idx in chunks:
-        logger.info(f"Processing chunk {chunk_idx + 1}/{len(chunks)}")
+    for chunk_text, chunk_idx, start_pct, end_pct in chunks:
+        logger.info(f"Processing chunk {chunk_idx + 1}/{len(chunks)} (chars {int(start_pct)}%-{int(end_pct)}%)")
         
         chunk_sections = _analyze_single_chunk(chunk_text, chunk_idx)
         
@@ -91,9 +97,20 @@ def analyze_sections_with_llm(template_path: str) -> List[Dict[str, Any]]:
         
         # Force garbage collection between chunks
         gc.collect()
+
+        # Пауза між чанками щоб не перевищити rate limit
+        if chunk_idx < len(chunks) - 1:
+            time.sleep(30)
     
     logger.info(f"Total sections found across all chunks: {len(all_sections)}")
-    return all_sections
+    
+    chunk_info = {
+        'total_chunks': len(chunks),
+        'total_chars': total_chars,
+        'sections_found': len(all_sections)
+    }
+    
+    return all_sections, chunk_info
 
 
 def _analyze_single_chunk(text: str, chunk_index: int) -> List[Dict[str, Any]]:
@@ -114,6 +131,8 @@ def _analyze_single_chunk(text: str, chunk_index: int) -> List[Dict[str, Any]]:
 - нумеровані абзаци
 - короткі самостійні речення
 - короткі речення на початку абзацу
+
+Довгі інформативні речення, швидше за все, не є заголовками секцій.
 
 ## ТЕКСТ ДОКУМЕНТА (Частина {chunk_index + 1})
 
@@ -147,45 +166,70 @@ def _analyze_single_chunk(text: str, chunk_index: int) -> List[Dict[str, Any]]:
             logger.error(f"Chunk {chunk_index}: No API key configured")
             return []
         
-        response = client.models.generate_content(
-            model=REASONING_MODEL,
-            contents=prompt,
-            config={"temperature": TEMPERATURE}
-        )
+        # Retry logic for 503 errors
+        max_retries = 5
+        base_delay = 5  # seconds
         
-        # Parse JSON response
-        response_text = response.text.strip()
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=REASONING_MODEL,
+                    contents=prompt,
+                    config={"temperature": TEMPERATURE}
+                )
+                
+                # Parse JSON response
+                response_text = response.text.strip()
+                
+                # Remove markdown code blocks if present
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:]
+                if response_text.startswith('```'):
+                    response_text = response_text[3:]
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3]
+                response_text = response_text.strip()
+                
+                sections = json.loads(response_text)
+                
+                # Validate structure
+                if not isinstance(sections, list):
+                    logger.warning(f"Chunk {chunk_index}: LLM returned non-list, using empty sections")
+                    return []
+                
+                # Ensure each section has required fields
+                for sec in sections:
+                    if 'title' not in sec:
+                        sec['title'] = 'Untitled'
+                    if 'level' not in sec:
+                        sec['level'] = 1
+                    if 'page' not in sec:
+                        sec['page'] = 0
+                
+                logger.info(f"Chunk {chunk_index}: Found {len(sections)} sections")
+                return sections
+                
+            except Exception as e:
+                error_str = str(e)
+                # Check if it's a 503 error
+                if '503' in error_str or 'UNAVAILABLE' in error_str:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"Chunk {chunk_index}: 503 error, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Chunk {chunk_index}: Max retries exceeded for 503 error")
+                        return []
+                else:
+                    # Non-503 error, don't retry
+                    logger.error(f"Chunk {chunk_index}: LLM analysis failed: {e}")
+                    return []
         
-        # Remove markdown code blocks if present
-        if response_text.startswith('```json'):
-            response_text = response_text[7:]
-        if response_text.startswith('```'):
-            response_text = response_text[3:]
-        if response_text.endswith('```'):
-            response_text = response_text[:-3]
-        response_text = response_text.strip()
-        
-        sections = json.loads(response_text)
-        
-        # Validate structure
-        if not isinstance(sections, list):
-            logger.warning(f"Chunk {chunk_index}: LLM returned non-list, using empty sections")
-            return []
-        
-        # Ensure each section has required fields
-        for sec in sections:
-            if 'title' not in sec:
-                sec['title'] = 'Untitled'
-            if 'level' not in sec:
-                sec['level'] = 1
-            if 'page' not in sec:
-                sec['page'] = 0
-        
-        logger.info(f"Chunk {chunk_index}: Found {len(sections)} sections")
-        return sections
+        return []
         
     except Exception as e:
-        logger.error(f"Chunk {chunk_index}: LLM analysis failed: {e}")
+        logger.error(f"Chunk {chunk_index}: Unexpected error: {e}")
         return []
 
 

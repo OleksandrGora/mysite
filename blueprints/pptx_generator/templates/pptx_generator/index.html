@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор PowerPoint презентацій</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { margin-bottom: 20px; color: #333; }
+        h2 { margin: 20px 0 15px; color: #555; font-size: 1.3em; }
+        
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .btn-primary {
+            background: #1976d2;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-secondary:hover { background: #e0e0e0; }
+        
+        .btn-success {
+            background: #388e3c;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn-success:hover { background: #2e7d32; }
+        .btn-success:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #444;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            min-height: 400px;
+            resize: vertical;
+        }
+        
+        .example-section {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .example-section h3 {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 1em;
+        }
+        .example-code {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        
+        .validation-result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .validation-result.valid {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            color: #2e7d32;
+        }
+        .validation-result.invalid {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+        }
+        .validation-result.warnings {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            color: #e65100;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #1976d2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 500;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background: #4caf50; }
+        .toast.error { background: #f44336; }
+        .toast.info { background: #2196f3; }
+        
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-header">
+        <h1>Генератор PowerPoint презентацій</h1>
+        <a href="/" class="btn-secondary">На головну</a>
+    </div>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Введіть JSON даних</h2>
+            <div class="form-group">
+                <label>JSON структура слайдів</label>
+                <textarea id="json-input" placeholder='[
+  {
+    "title": "Назва слайду",
+    "body": "Основний текст слайду",
+    "image_description": "Опис ілюстрації (опціонально)"
+  }
+]'></textarea>
+            </div>
+            
+            <div class="actions">
+                <button class="btn-secondary" onclick="loadExample()">Завантажити приклад</button>
+                <button class="btn-secondary" onclick="validateJSON()">Перевірити JSON</button>
+                <button class="btn-primary" id="btn-generate" onclick="generatePPTX()">
+                    Створити презентацію
+                </button>
+            </div>
+            
+            <div id="validation-result" class="validation-result"></div>
+        </div>
+        
+        <div class="panel">
+            <h2>Інструкція</h2>
+            <p style="margin-bottom: 15px; color: #666;">
+                Введіть JSON масив об'єктів, де кожен об'єкт представляє один слайд презентації.
+            </p>
+            
+            <h3>Обов'язкові поля:</h3>
+            <ul style="margin: 10px 0 15px 20px; color: #666;">
+                <li><strong>title</strong> - назва слайду</li>
+                <li><strong>body</strong> - основний текст слайду</li>
+            </ul>
+            
+            <h3>Опціональні поля:</h3>
+            <ul style="margin: 10px 0 15px 20px; color: #666;">
+                <li><strong>image_description</strong> - опис ілюстрації для генерації (поки що створює placeholder)</li>
+            </ul>
+            
+            <div class="example-section">
+                <h3>Приклад JSON:</h3>
+                <div class="example-code">[
+  {
+    "title": "Вступ",
+    "body": "Це перший слайд із текстом.",
+    "image_description": "Схема процесу з трьома кроками"
+  },
+  {
+    "title": "Основна частина",
+    "body": "Тут можна додати опис проекту."
+  },
+  {
+    "title": "Висновки",
+    "body": "Фінальний слайд презентації."
+  }
+]</div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="toast" class="toast"></div>
+    
+    <script>
+        const API_BASE = '/pptx-generator';
+        
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        function loadExample() {
+            const example = [
+                {
+                    "title": "Вступ",
+                    "body": "Це перший слайд із текстом.",
+                    "image_description": "Схема процесу з трьома кроками"
+                },
+                {
+                    "title": "Основна частина",
+                    "body": "Тут можна додати опис проекту."
+                },
+                {
+                    "title": "Висновки",
+                    "body": "Фінальний слайд презентації."
+                }
+            ];
+            document.getElementById('json-input').value = JSON.stringify(example, null, 2);
+            showToast('Приклад завантажено', 'info');
+        }
+        
+        async function validateJSON() {
+            const input = document.getElementById('json-input').value;
+            const resultDiv = document.getElementById('validation-result');
+            
+            if (!input.trim()) {
+                resultDiv.className = 'validation-result invalid';
+                resultDiv.style.display = 'block';
+                resultDiv.textContent = 'Поле не може бути порожнім';
+                return false;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/validate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: input
+                });
+                
+                const result = await response.json();
+                
+                resultDiv.style.display = 'block';
+                
+                if (result.valid) {
+                    resultDiv.className = 'validation-result valid';
+                    let message = `✓ Валідно! ${result.slide_count} слайдів`;
+                    
+                    if (result.llm_fixed) {
+                        message += '\n\nJSON автоматично виправлено LLM';
+                        // Update the textarea with fixed data
+                        if (result.fixed_data) {
+                            document.getElementById('json-input').value = JSON.stringify(result.fixed_data, null, 2);
+                        }
+                    }
+                    
+                    if (result.warnings.length > 0) {
+                        message += '\n\nПопередження:\n' + result.warnings.join('\n');
+                        resultDiv.className = 'validation-result warnings';
+                    }
+                    resultDiv.textContent = message;
+                    showToast('JSON валідний', 'success');
+                    return true;
+                } else {
+                    resultDiv.className = 'validation-result invalid';
+                    resultDiv.textContent = 'Помилки:\n' + result.errors.join('\n');
+                    showToast('Помилки у JSON', 'error');
+                    return false;
+                }
+            } catch (e) {
+                resultDiv.className = 'validation-result invalid';
+                resultDiv.style.display = 'block';
+                resultDiv.textContent = 'Помилка валідації: ' + e.message;
+                showToast('Помилка валідації', 'error');
+                return false;
+            }
+        }
+        
+        async function generatePPTX() {
+            const input = document.getElementById('json-input').value;
+            const btn = document.getElementById('btn-generate');
+            
+            if (!input.trim()) {
+                showToast('Введіть JSON дані', 'error');
+                return;
+            }
+            
+            // Validate first
+            const isValid = await validateJSON();
+            if (!isValid) {
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Генерація...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: input
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Помилка генерації');
+                }
+                
+                // Download the file
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `presentation_${Date.now()}.pptx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                showToast('Презентацію створено!', 'success');
+            } catch (e) {
+                showToast('Помилка: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Створити презентацію';
+            }
+        }
+    </script>
+</body>
+</html>

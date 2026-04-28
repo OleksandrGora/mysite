@@ -16,7 +16,8 @@ from google import genai
 from ..config import (
     GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE,
     MAX_TOKENS_PER_SECTION, MAX_TOKENS_FOR_TABLE,
-    SECTION_GENERATION_PROMPT, TABLE_GENERATION_PROMPT
+    SECTION_GENERATION_PROMPT, TABLE_GENERATION_PROMPT,
+    FULL_DOCUMENT_GENERATION_PROMPT
 )
 
 # Initialize client
@@ -359,6 +360,125 @@ def generate_all_content(
     logger.success(f"[{task_id}] Content generation complete: {result['total_word_count']} words, {result['total_table_rows']} table rows")
     
     return result
+
+
+def generate_document_full(
+    analysis_text: str,
+    sources_data: Dict[str, Dict[str, Any]],
+    task_id: str = "unknown",
+    user_prompt: Optional[str] = None
+) -> str:
+    """
+    Generate full document in one pass using LLM.
+    
+    Args:
+        analysis_text: Parsed analysis from template analysis
+        sources_data: Sources with text content
+        task_id: For logging
+        user_prompt: Optional user prompt
+        
+    Returns:
+        Markdown text of the generated document
+    """
+    logger.info(f"[{task_id}] Starting full document generation (one-pass)...")
+    
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not configured")
+    
+    if not client:
+        raise ValueError("GEMINI_API_KEY not configured")
+    
+    # Parse analysis to get structure
+    from ..parsers.analysis_parser import parse_analysis, build_markdown_structure
+    parsed_analysis = parse_analysis(analysis_text)
+    
+    # Build structure description for prompt
+    structure_lines = []
+    for section in parsed_analysis.sections:
+        prefix = '#' * section.level
+        structure_lines.append(f"{prefix} {section.title}")
+        if section.has_text:
+            if section.description_general:
+                structure_lines.append(f"  Опис (що написати): {section.description_general}")
+            if section.description_specific:
+                structure_lines.append(f"  Приклад стилю: {section.description_specific}")
+    
+    for table in parsed_analysis.tables:
+        prefix = '#' * table.level
+        structure_lines.append(f"{prefix} {table.title}")
+        if table.columns:
+            structure_lines.append(f"  Колонки: {', '.join(table.columns)}")
+    
+    structure_text = '\n'.join(structure_lines)
+    
+    # Build sources text
+    sources_parts = []
+    for name, data in sources_data.items():
+        text = data.get('text', '')
+        # Truncate if too long
+        if len(text) > 8000:
+            text = text[:8000] + "\n... (текст обрізано через обмеження довжини)"
+        sources_parts.append(f"=== {name} ===\n{text}\n")
+    
+    sources_block = '\n'.join(sources_parts) if sources_parts else "(джерела не вказані)"
+    
+    # Build prompt
+    prompt = FULL_DOCUMENT_GENERATION_PROMPT.format(
+        structure=structure_text,
+        sources=sources_block
+    )
+    
+    # Add user prompt if provided
+    if user_prompt:
+        prompt += f"\n\n## ДОДАТКОВІ ВИМОГИ\n\n{user_prompt}"
+    
+    import time
+    
+    # Retry logic for 503 errors
+    max_retries = 3
+    retry_delays = [10, 20, 30]  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
+            response = client.models.generate_content(
+                model=REASONING_MODEL,
+                contents=prompt,
+                config={"temperature": TEMPERATURE}
+            )
+            
+            markdown_text = response.text.strip()
+            
+            # Clean up common LLM artifacts
+            if markdown_text.startswith('```'):
+                # Remove markdown code block wrapper
+                lines = markdown_text.split('\n')
+                if lines[0].startswith('```'):
+                    lines.pop(0)
+                if lines and lines[-1].startswith('```'):
+                    lines.pop()
+                markdown_text = '\n'.join(lines).strip()
+            
+            logger.success(f"[{task_id}] Document generated: {len(markdown_text)} chars")
+            
+            # Force garbage collection
+            gc.collect()
+            
+            return markdown_text
+            
+        except Exception as e:
+            error_str = str(e)
+            is_503_error = '503' in error_str or 'UNAVAILABLE' in error_str
+            
+            if is_503_error and attempt < max_retries - 1:
+                delay = retry_delays[attempt]
+                logger.warning(f"[{task_id}] 503 error, retrying after {delay}s... (спроба {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"[{task_id}] Full document generation failed: {e}")
+                gc.collect()
+                raise
 
 
 if __name__ == '__main__':

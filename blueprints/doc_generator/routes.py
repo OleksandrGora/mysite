@@ -997,7 +997,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
 
 @shared_task(bind=True, max_retries=2)
 def generate_final_document_task(self, task_id, folder_path, generation_prompt, source_files):
-    """Celery task for final document generation."""
+    """Celery task for final document generation using one-pass LLM approach."""
     from loguru import logger
     
     logger.info(f"[GENERATE] Starting generation for task {task_id}")
@@ -1012,9 +1012,6 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         if not analysis_text:
             raise ValueError("Analysis not found. Run analysis first.")
         
-        template_file = task_info.get('template_file')
-        template_path = os.path.join(TEMPLATES_DIR, template_file)
-        
         # Load source files
         sources_data = {}
         for src_file in source_files:
@@ -1024,19 +1021,33 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
                 src_data = parse_sources_with_metadata([src_path])
                 sources_data.update(src_data)
         
-        # Use existing generation logic
-        # This is simplified - actual implementation would use planner and generator
+        if not sources_data:
+            raise ValueError("No source files found or could not be parsed.")
         
-        # For now, create a simple document
-        from .builders.docx_builder import build_document_simple
+        # Generate full document in one pass
+        from .reasoning.generator import generate_document_full
+        markdown_text = generate_document_full(
+            analysis_text=analysis_text,
+            sources_data=sources_data,
+            task_id=task_id,
+            user_prompt=generation_prompt
+        )
+        
+        # Convert markdown to DOCX
+        from .builders.markdown_to_docx import convert_markdown_to_docx
         
         output_dir = os.path.join(folder_path, 'temp')
         os.makedirs(output_dir, exist_ok=True)
         
         temp_output = os.path.join(output_dir, 'temp_result.docx')
         
-        # Build with simple template filling
-        build_document_simple(template_path, sources_data, temp_output)
+        success, warnings, error = convert_markdown_to_docx(markdown_text, temp_output)
+        
+        if not success:
+            raise ValueError(f"Markdown to DOCX conversion failed: {error}")
+        
+        if warnings:
+            logger.warning(f"[GENERATE] Conversion warnings: {warnings}")
         
         # Save final document with proper name
         save_final_document(folder_path, temp_output)

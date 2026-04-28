@@ -1,13 +1,17 @@
 {
   "task_id": "6c3acd1e",
   "created_at": "2026-04-28T14:06:46.717918",
-  "updated_at": "2026-04-28T14:06:46.717970",
-  "status": "idle",
+  "updated_at": "2026-04-28T16:37:02.259076",
+  "status": "completed",
   "template_file": "Лабораторна робота 8.pdf",
-  "source_files": [],
+  "source_files": [
+    "Лабораторна робота 8.pdf"
+  ],
   "analysis_prompt": "",
   "generation_prompt": "",
-  "analysis_result": null,
-  "final_document": null,
-  "error_message": null
+  "analysis_result": "analysis.txt",
+  "final_document": "Лабораторна робота 8 2 результат.docx",
+  "error_message": "'\"general\", \"specific\"'",
+  "folder_name": "Лабораторна робота 8 2",
+  "folder_path": "/home/openclaw/mysite/Tasks-data/Лабораторна робота 8 2"
 }

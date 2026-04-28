@@ -18,6 +18,13 @@ from .rag.embedder import embed_all_sources, should_use_rag
 from .rag.retriever import retrieve_for_section, format_chunks_for_llm
 from .config import USE_RAG
 from .cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
+from .task_manager import (
+    ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
+    load_task_info, get_all_tasks, get_task_by_id, update_task_status,
+    save_analysis_result, load_analysis_result, save_final_document, delete_task,
+    handle_file_upload, get_available_files, get_unique_filename,
+    TASKS_DATA_DIR, TEMPLATES_DIR, SOURCES_DIR
+)
 
 # --- Authentication Decorator ---
 
@@ -635,3 +642,387 @@ def download_result(task_id):
     # Use the actual filename for download
     download_name = os.path.basename(output_file)
     return send_file(output_file, as_attachment=True, download_name=download_name)
+
+
+# ============================================================================
+# NEW ARCHITECTURE API - Task-based document generation
+# ============================================================================
+
+@doc_generator_bp.route('/api/tasks', methods=['GET'])
+@login_required
+def list_tasks():
+    """Get all tasks from Tasks-data folder."""
+    ensure_directories()
+    tasks = get_all_tasks()
+    return jsonify({'tasks': tasks})
+
+
+@doc_generator_bp.route('/api/tasks', methods=['POST'])
+@login_required
+def create_new_task():
+    """Create new task (initial setup)."""
+    data = request.get_json()
+    
+    template_file = data.get('template_file')
+    analysis_prompt = data.get('analysis_prompt', '')
+    
+    if not template_file:
+        return jsonify({'error': 'Template file is required'}), 400
+    
+    # Create unique task folder
+    task_folder = get_unique_task_folder(template_file)
+    task_id = str(uuid.uuid4())[:8]
+    
+    # Create task info
+    task_info = create_task_info(
+        task_id=task_id,
+        template_file=template_file,
+        analysis_prompt=analysis_prompt,
+        status='idle'
+    )
+    
+    save_task_info(task_folder, task_info)
+    
+    return jsonify({
+        'task_id': task_id,
+        'folder': os.path.basename(task_folder),
+        'folder_path': task_folder,
+        'status': 'created'
+    })
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>', methods=['GET'])
+@login_required
+def get_task(task_id):
+    """Get task details."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    # Load analysis if exists
+    folder_path = task.get('folder_path')
+    if folder_path and task.get('analysis_result'):
+        analysis_text = load_analysis_result(folder_path)
+        task['analysis_content'] = analysis_text
+    
+    return jsonify(task)
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>', methods=['DELETE'])
+@login_required
+def delete_task_endpoint(task_id):
+    """Delete task and its folder."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    folder_path = task.get('folder_path')
+    if folder_path and delete_task(folder_path):
+        return jsonify({'message': 'Task deleted'})
+    
+    return jsonify({'error': 'Failed to delete task'}), 500
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>/analysis', methods=['POST'])
+@login_required
+def run_analysis(task_id):
+    """Start analysis task (Celery)."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    folder_path = task.get('folder_path')
+    data = request.get_json()
+    analysis_prompt = data.get('analysis_prompt', task.get('analysis_prompt', ''))
+    
+    # Update task with prompt if changed
+    if analysis_prompt != task.get('analysis_prompt'):
+        task['analysis_prompt'] = analysis_prompt
+        save_task_info(folder_path, task)
+    
+    # Start Celery task
+    result = analyze_document_task.delay(task_id, folder_path, analysis_prompt)
+    
+    return jsonify({
+        'message': 'Analysis started',
+        'celery_task_id': result.id,
+        'task_id': task_id
+    })
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>/analysis', methods=['PUT'])
+@login_required
+def update_analysis(task_id):
+    """Update analysis text (after user editing)."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    folder_path = task.get('folder_path')
+    data = request.get_json()
+    analysis_text = data.get('analysis', '')
+    
+    save_analysis_result(folder_path, analysis_text)
+    
+    return jsonify({'message': 'Analysis saved'})
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>/generate', methods=['POST'])
+@login_required
+def generate_document(task_id):
+    """Generate final document (Celery)."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    folder_path = task.get('folder_path')
+    data = request.get_json()
+    
+    generation_prompt = data.get('generation_prompt', task.get('generation_prompt', ''))
+    source_files = data.get('source_files', task.get('source_files', []))
+    
+    # Update task info
+    task['generation_prompt'] = generation_prompt
+    task['source_files'] = source_files
+    save_task_info(folder_path, task)
+    
+    # Start Celery task
+    result = generate_final_document_task.delay(
+        task_id, folder_path, generation_prompt, source_files
+    )
+    
+    return jsonify({
+        'message': 'Document generation started',
+        'celery_task_id': result.id,
+        'task_id': task_id
+    })
+
+
+@doc_generator_bp.route('/api/tasks/<task_id>/download', methods=['GET'])
+@login_required
+def download_task_result(task_id):
+    """Download final document from task."""
+    task = get_task_by_id(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    
+    if task.get('status') != 'completed':
+        return jsonify({'error': 'Task not completed'}), 400
+    
+    final_doc = task.get('final_document')
+    folder_path = task.get('folder_path')
+    
+    if not final_doc or not folder_path:
+        return jsonify({'error': 'No document available'}), 404
+    
+    file_path = os.path.join(folder_path, final_doc)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'File not found'}), 404
+    
+    return send_file(file_path, as_attachment=True, download_name=final_doc)
+
+
+@doc_generator_bp.route('/api/files', methods=['GET'])
+@login_required
+def list_files():
+    """List available template and source files."""
+    file_type = request.args.get('type', 'all')
+    files = get_available_files(file_type)
+    return jsonify(files)
+
+
+@doc_generator_bp.route('/api/files/upload', methods=['POST'])
+@login_required
+def upload_file():
+    """Upload new file (template or source)."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    upload_type = request.form.get('type', 'source')  # 'template' or 'source'
+    
+    if upload_type not in ['template', 'source']:
+        return jsonify({'error': 'Invalid upload type'}), 400
+    
+    result = handle_file_upload(file, upload_type)
+    
+    if result['status'] == 'exists':
+        return jsonify({
+            'status': 'exists',
+            'filename': result['filename'],
+            'message': 'File already exists'
+        }), 409
+    
+    return jsonify({
+        'status': 'success',
+        'filename': result['filename'],
+        'path': result['path']
+    })
+
+
+@doc_generator_bp.route('/api/files/upload/unique', methods=['POST'])
+@login_required
+def upload_file_unique():
+    """Upload file with unique name (adds 'копія' if exists)."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    upload_type = request.form.get('type', 'source')
+    
+    target_dir = TEMPLATES_DIR if upload_type == 'template' else SOURCES_DIR
+    original_filename = file.filename
+    
+    # Get unique filename
+    unique_filename = get_unique_filename(target_dir, original_filename)
+    target_path = os.path.join(target_dir, unique_filename)
+    
+    file.save(target_path)
+    
+    return jsonify({
+        'status': 'success',
+        'original_filename': original_filename,
+        'filename': unique_filename,
+        'path': target_path,
+        'renamed': unique_filename != original_filename
+    })
+
+
+# ============================================================================
+# CELERY TASKS - New Architecture
+# ============================================================================
+
+@shared_task(bind=True, max_retries=3)
+def analyze_document_task(self, task_id, folder_path, analysis_prompt):
+    """Celery task for document analysis using LLM."""
+    from loguru import logger
+    from .config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE
+    from google import genai
+    
+    logger.info(f"[ANALYZE] Starting analysis for task {task_id}")
+    
+    try:
+        update_task_status(folder_path, 'analyzing')
+        
+        # Load task info
+        task_info = load_task_info(folder_path)
+        template_file = task_info.get('template_file')
+        template_path = os.path.join(TEMPLATES_DIR, template_file)
+        
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(f"Template not found: {template_file}")
+        
+        # Parse template for text extraction
+        from .parsers.template_parser import parse_template
+        template_data = parse_template(template_path)
+        
+        # Get text content for LLM
+        text_content = template_data.get('text', '')
+        if not text_content:
+            # For PDF, extract text differently
+            if template_path.lower().endswith('.pdf'):
+                import fitz
+                doc = fitz.open(template_path)
+                text_content = ""
+                for page in doc:
+                    text_content += page.get_text()
+                doc.close()
+        
+        # Call LLM for analysis
+        client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+        
+        if not client:
+            raise ValueError("No API key configured")
+        
+        prompt = f"""Проаналізуй наступний документ-шаблон і опиши:
+1. Структуру документа (розділи, підрозділи)
+2. Тип документа та його призначення
+3. Які дані потрібно заповнити в кожній секції
+4. Особливості оформлення та стилю
+
+Користувацький запит: {analysis_prompt if analysis_prompt else 'Проаналізуй структуру документа'}
+
+ТЕКСТ ДОКУМЕНТА:
+{text_content[:15000]}  # Limit to 15k chars
+
+Надій детальний аналіз українською мовою."""
+        
+        response = client.models.generate_content(
+            model=REASONING_MODEL,
+            contents=prompt,
+            config={"temperature": TEMPERATURE}
+        )
+        
+        analysis_text = response.text
+        
+        # Save analysis
+        save_analysis_result(folder_path, analysis_text)
+        update_task_status(folder_path, 'idle')
+        
+        logger.info(f"[ANALYZE] Completed for task {task_id}")
+        return {'status': 'success', 'task_id': task_id}
+        
+    except Exception as e:
+        logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
+        update_task_status(folder_path, 'failed', str(e))
+        raise self.retry(exc=e, countdown=60)
+
+
+@shared_task(bind=True, max_retries=2)
+def generate_final_document_task(self, task_id, folder_path, generation_prompt, source_files):
+    """Celery task for final document generation."""
+    from loguru import logger
+    
+    logger.info(f"[GENERATE] Starting generation for task {task_id}")
+    
+    try:
+        update_task_status(folder_path, 'generating')
+        
+        # Load task info and analysis
+        task_info = load_task_info(folder_path)
+        analysis_text = load_analysis_result(folder_path)
+        
+        if not analysis_text:
+            raise ValueError("Analysis not found. Run analysis first.")
+        
+        template_file = task_info.get('template_file')
+        template_path = os.path.join(TEMPLATES_DIR, template_file)
+        
+        # Load source files
+        sources_data = {}
+        for src_file in source_files:
+            src_path = os.path.join(SOURCES_DIR, src_file)
+            if os.path.exists(src_path):
+                from .parsers.source_parser import parse_sources_with_metadata
+                src_data = parse_sources_with_metadata([src_path])
+                sources_data.update(src_data)
+        
+        # Use existing generation logic
+        # This is simplified - actual implementation would use planner and generator
+        
+        # For now, create a simple document
+        from .builders.docx_builder import build_document_simple
+        
+        output_dir = os.path.join(folder_path, 'temp')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        temp_output = os.path.join(output_dir, 'temp_result.docx')
+        
+        # Build with simple template filling
+        build_document_simple(template_path, sources_data, temp_output)
+        
+        # Save final document with proper name
+        save_final_document(folder_path, temp_output)
+        
+        # Cleanup temp
+        shutil.rmtree(output_dir, ignore_errors=True)
+        
+        update_task_status(folder_path, 'completed')
+        
+        logger.info(f"[GENERATE] Completed for task {task_id}")
+        return {'status': 'success', 'task_id': task_id}
+        
+    except Exception as e:
+        logger.error(f"[GENERATE] Failed for task {task_id}: {e}")
+        update_task_status(folder_path, 'failed', str(e))
+        raise self.retry(exc=e, countdown=60)

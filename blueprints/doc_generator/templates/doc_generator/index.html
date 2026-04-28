@@ -576,34 +576,55 @@
         }
         
         // Modal functions
-        function openTaskModal(taskId = null) {
+        async function openTaskModal(taskId = null) {
             const modal = document.getElementById('task-modal');
             const title = document.getElementById('modal-title');
             const deleteBtn = document.getElementById('btn-delete');
             
+            log(`openTaskModal called with taskId: ${taskId}`, 'info');
+            
             if (taskId) {
-                // Edit existing task
-                currentTask = tasks.find(t => t.task_id === taskId);
-                if (!currentTask) {
-                    showToast('Завдання не знайдено', 'error');
+                // Edit existing task - load full details from API
+                log(`Завантаження завдання ${taskId}...`, 'info');
+                log(`API URL: ${API_BASE}/api/tasks/${taskId}`, 'info');
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
+                    log(`Response status: ${response.status}`, 'info');
+                    
+                    const task = await response.json();
+                    log(`Response data: ${JSON.stringify(task).substring(0, 200)}`, 'info');
+                    
+                    if (task.error) {
+                        showToast('Завдання не знайдено', 'error');
+                        log(`Error from API: ${task.error}`, 'error');
+                        return;
+                    }
+                    
+                    currentTask = task;
+                    
+                    title.textContent = task.folder_name || 'Редагування завдання';
+                    document.getElementById('task-id').value = taskId;
+                    document.getElementById('analysis-prompt').value = task.analysis_prompt || '';
+                    document.getElementById('generation-prompt').value = task.generation_prompt || '';
+                    document.getElementById('template-file').value = task.template_file || '';
+                    
+                    // Load analysis if exists
+                    if (task.analysis_content) {
+                        document.getElementById('analysis-content').value = task.analysis_content;
+                        document.getElementById('analysis-result-container').style.display = 'block';
+                        log('Аналіз завантажено', 'success');
+                    } else {
+                        document.getElementById('analysis-content').value = '';
+                        document.getElementById('analysis-result-container').style.display = 'none';
+                    }
+                    
+                    deleteBtn.style.display = 'inline-block';
+                } catch (e) {
+                    showToast('Помилка завантаження завдання', 'error');
+                    log('Помилка: ' + e.message, 'error');
                     return;
                 }
-                
-                title.textContent = currentTask.folder_name || 'Редагування завдання';
-                document.getElementById('task-id').value = taskId;
-                document.getElementById('analysis-prompt').value = currentTask.analysis_prompt || '';
-                document.getElementById('generation-prompt').value = currentTask.generation_prompt || '';
-                document.getElementById('template-file').value = currentTask.template_file || '';
-                
-                // Load analysis if exists
-                if (currentTask.analysis_content) {
-                    document.getElementById('analysis-content').value = currentTask.analysis_content;
-                    document.getElementById('analysis-result-container').style.display = 'block';
-                } else {
-                    document.getElementById('analysis-result-container').style.display = 'none';
-                }
-                
-                deleteBtn.style.display = 'inline-block';
             } else {
                 // New task
                 currentTask = null;
@@ -657,10 +678,14 @@
                         // Refresh file lists
                         await loadAvailableFiles();
                         
-                        // Auto-select uploaded file
-                        if (type === 'template') {
-                            document.getElementById('template-file').value = result.filename;
-                        }
+                        // Auto-select uploaded file (after DOM update)
+                        setTimeout(() => {
+                            if (type === 'template') {
+                                const select = document.getElementById('template-file');
+                                select.value = result.filename;
+                                log(`Автовибір шаблону: ${result.filename}`, 'info');
+                            }
+                        }, 100);
                     }
                 } catch (e) {
                     showToast('Помилка завантаження: ' + e.message, 'error');
@@ -672,19 +697,33 @@
         
         // Run analysis
         async function runAnalysis() {
-            const templateFile = document.getElementById('template-file').value;
+            const templateSelect = document.getElementById('template-file');
+            const templateFile = templateSelect.value;
             const analysisPrompt = document.getElementById('analysis-prompt').value;
+            
+            log(`DEBUG: templateSelect.options.length=${templateSelect.options.length}`);
+            log(`DEBUG: templateSelect.value='${templateFile}'`);
+            log(`DEBUG: selectedIndex=${templateSelect.selectedIndex}`);
             
             if (!templateFile) {
                 showToast('Виберіть файл шаблону', 'error');
+                log('Помилка: templateFile пустий або не вибрано', 'error');
                 return;
             }
             
             // Create task if not exists
             let taskId = document.getElementById('task-id').value;
             if (!taskId) {
+                log(`Створення завдання: шаблон='${templateFile}', промпт='${analysisPrompt.substring(0, 50)}...'`, 'info');
+                
+                if (!templateFile) {
+                    showToast('Помилка: не вибрано файл шаблону', 'error');
+                    log('Помилка: templateFile пустий', 'error');
+                    return;
+                }
+                
                 try {
-                    const response = await fetch(`${API_BASE}/api/tasks`, {
+                    const response = await fetch(`${API_BASE}/api/task`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -694,6 +733,20 @@
                     });
                     
                     const result = await response.json();
+                    
+                    // Handle duplicate task
+                    if (response.status === 409 && result.duplicate) {
+                        log(`Знайдено існуюче завдання: ${result.existing_task_name}`, 'info');
+                        const useExisting = confirm(`Завдання з цим шаблоном вже існує: "${result.existing_task_name}"\n\nВідкрити існуюче завдання?`);
+                        if (useExisting) {
+                            closeTaskModal();
+                            setTimeout(() => openTaskModal(result.existing_task_id), 100);
+                            return;
+                        }
+                        log('Користувач відхилив відкриття існуючого завдання', 'info');
+                        return;
+                    }
+                    
                     if (result.error) throw new Error(result.error);
                     
                     taskId = result.task_id;
@@ -703,6 +756,7 @@
                     log(`Створено завдання ${taskId}`, 'success');
                 } catch (e) {
                     showToast('Помилка створення завдання: ' + e.message, 'error');
+                    log('Помилка створення: ' + e.message, 'error');
                     return;
                 }
             }
@@ -740,8 +794,28 @@
         async function pollTaskStatus(taskId) {
             const interval = setInterval(async () => {
                 try {
-                    const response = await fetch(`/api/tasks/${taskId}`);
+                    const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
+                    
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            clearInterval(interval);
+                            document.getElementById('btn-analyze').disabled = false;
+                            document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                            log('Завдання не знайдено (404)', 'error');
+                            showToast('Завдання не знайдено', 'error');
+                        }
+                        return;
+                    }
+                    
                     const task = await response.json();
+                    
+                    if (task.error) {
+                        clearInterval(interval);
+                        document.getElementById('btn-analyze').disabled = false;
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                        log('Помилка: ' + task.error, 'error');
+                        return;
+                    }
                     
                     if (task.status === 'idle' && task.analysis_content) {
                         // Analysis completed
@@ -847,7 +921,7 @@
         async function pollGenerationStatus(taskId) {
             const interval = setInterval(async () => {
                 try {
-                    const response = await fetch(`/api/tasks/${taskId}`);
+                    const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
                     const task = await response.json();
                     
                     if (task.status === 'completed') {

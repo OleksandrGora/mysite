@@ -3,6 +3,7 @@ Task management system for document generator.
 Handles task creation, saving, loading from Tasks-data folder.
 """
 import os
+import sys
 import json
 import shutil
 from datetime import datetime
@@ -12,8 +13,8 @@ from loguru import logger
 
 
 TASKS_DATA_DIR = '/home/openclaw/mysite/Tasks-data'
-TEMPLATES_DIR = '/home/openclaw/mysite/Templates'
-SOURCES_DIR = '/home/openclaw/mysite/Sources'
+TEMPLATES_DIR = '/home/openclaw/mysite/Tasks-data/Templates'
+SOURCES_DIR = '/home/openclaw/mysite/Tasks-data/Sources'
 
 
 def ensure_directories():
@@ -93,30 +94,52 @@ def get_all_tasks() -> List[Dict[str, Any]]:
     ensure_directories()
     tasks = []
     
+    sys.stderr.write(f"[get_all_tasks] TASKS_DATA_DIR: {TASKS_DATA_DIR}\n")
+    sys.stderr.write(f"[get_all_tasks] exists: {os.path.exists(TASKS_DATA_DIR)}\n")
+    
     if not os.path.exists(TASKS_DATA_DIR):
         return tasks
     
-    for item in os.listdir(TASKS_DATA_DIR):
+    items = os.listdir(TASKS_DATA_DIR)
+    sys.stderr.write(f"[get_all_tasks] items in dir: {items}\n")
+    
+    for item in items:
+        # Skip system folders
+        if item in ['Sources', 'Templates']:
+            sys.stderr.write(f"[get_all_tasks] Skipping system folder: {item}\n")
+            continue
+            
         task_folder = os.path.join(TASKS_DATA_DIR, item)
+        sys.stderr.write(f"[get_all_tasks] Checking: {item}, is_dir={os.path.isdir(task_folder)}\n")
+        
         if os.path.isdir(task_folder):
             task_info = load_task_info(task_folder)
+            sys.stderr.write(f"[get_all_tasks] task_info for {item}: {task_info is not None}\n")
             if task_info:
-                # Add folder name for display
-                task_info["folder_name"] = item
+                # Add folder name for display (remove surrounding quotes if any)
+                folder_name = item.strip("'\"")
+                task_info["folder_name"] = folder_name
                 task_info["folder_path"] = task_folder
                 tasks.append(task_info)
+                sys.stderr.write(f"[get_all_tasks] Added task: {task_info.get('task_id')}\n")
     
     # Sort by created_at descending
     tasks.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    sys.stderr.write(f"[get_all_tasks] Total tasks: {len(tasks)}\n")
     return tasks
 
 
 def get_task_by_id(task_id: str) -> Optional[Dict[str, Any]]:
     """Find task by ID across all task folders."""
+    sys.stderr.write(f"[get_task_by_id] Looking for: {task_id}\n")
     tasks = get_all_tasks()
+    sys.stderr.write(f"[get_task_by_id] Available task_ids: {[t.get('task_id') for t in tasks]}\n")
     for task in tasks:
+        sys.stderr.write(f"[get_task_by_id] Comparing: {task.get('task_id')} == {task_id} -> {task.get('task_id') == task_id}\n")
         if task.get("task_id") == task_id:
+            sys.stderr.write(f"[get_task_by_id] Found task: {task_id}\n")
             return task
+    sys.stderr.write(f"[get_task_by_id] Task not found: {task_id}\n")
     return None
 
 

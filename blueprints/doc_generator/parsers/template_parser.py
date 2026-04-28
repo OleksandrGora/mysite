@@ -129,7 +129,7 @@ def get_heading_level(paragraph: Paragraph) -> int:
         except ValueError:
             pass
     
-    # Common Ukrainian/Russian heading style names
+    # Common Ukrainian heading style names
     heading_map = {
         'Title': 1,
         'Заголовок': 1,

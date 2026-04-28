@@ -1,9 +1,11 @@
 import os
+import sys
 import json
 import uuid
 import time
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
+from loguru import logger
 from werkzeug.utils import secure_filename
 import re
 from celery import shared_task
@@ -567,22 +569,6 @@ def create_task():
     return jsonify({'task_id': task_id, 'status': 'queued'}), 201
 
 
-@doc_generator_bp.route('/api/tasks/<task_id>', methods=['GET'])
-@login_required
-def get_task_status(task_id):
-    """Get task status by ID."""
-    data_dir = current_app.config.get('DATA_DIR', '/home/openclaw/mysite/data')
-    task_json_path = os.path.join(data_dir, 'tasks', task_id, 'task.json')
-    
-    if not os.path.exists(task_json_path):
-        return jsonify({'error': 'Task not found'}), 404
-    
-    with open(task_json_path, 'r') as f:
-        task_data = json.load(f)
-    
-    return jsonify(task_data)
-
-
 # --- Maintenance Routes ---
 
 @doc_generator_bp.route('/api/stats', methods=['GET'])
@@ -657,7 +643,7 @@ def list_tasks():
     return jsonify({'tasks': tasks})
 
 
-@doc_generator_bp.route('/api/tasks', methods=['POST'])
+@doc_generator_bp.route('/api/task', methods=['POST'])
 @login_required
 def create_new_task():
     """Create new task (initial setup)."""
@@ -665,9 +651,22 @@ def create_new_task():
     
     template_file = data.get('template_file')
     analysis_prompt = data.get('analysis_prompt', '')
+    force_create = data.get('force', False)
     
     if not template_file:
         return jsonify({'error': 'Template file is required'}), 400
+    
+    # Check for existing task with same template
+    existing_tasks = get_all_tasks()
+    for task in existing_tasks:
+        if task.get('template_file') == template_file and not force_create:
+            logger.info(f"[API] Duplicate task detected for template: {template_file}")
+            return jsonify({
+                'error': 'Task with this template already exists',
+                'existing_task_id': task.get('task_id'),
+                'existing_task_name': task.get('folder_name'),
+                'duplicate': True
+            }), 409
     
     # Create unique task folder
     task_folder = get_unique_task_folder(template_file)
@@ -695,15 +694,26 @@ def create_new_task():
 @login_required
 def get_task(task_id):
     """Get task details."""
+    sys.stderr.write(f"[API] Get task request: {task_id}\n")
+    
+    # Get all tasks first for debugging
+    all_tasks = get_all_tasks()
+    sys.stderr.write(f"[API] Total tasks loaded: {len(all_tasks)}\n")
+    sys.stderr.write(f"[API] Available task IDs: {[t.get('task_id') for t in all_tasks]}\n")
+    
     task = get_task_by_id(task_id)
     if not task:
+        sys.stderr.write(f"[API] Task not found: {task_id}\n")
         return jsonify({'error': 'Task not found'}), 404
+    
+    sys.stderr.write(f"[API] Task found: {task_id}, folder={task.get('folder_name')}\n")
     
     # Load analysis if exists
     folder_path = task.get('folder_path')
     if folder_path and task.get('analysis_result'):
         analysis_text = load_analysis_result(folder_path)
         task['analysis_content'] = analysis_text
+        sys.stderr.write(f"[API] Analysis loaded: {len(analysis_text) if analysis_text else 0} chars\n")
     
     return jsonify(task)
 
@@ -934,19 +944,45 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         if not client:
             raise ValueError("No API key configured")
         
-        prompt = f"""Проаналізуй наступний документ-шаблон і опиши:
-1. Структуру документа (розділи, підрозділи)
-2. Тип документа та його призначення
-3. Які дані потрібно заповнити в кожній секції
-4. Особливості оформлення та стилю
+#         prompt = f"""Проаналізуй наступний документ-шаблон і опиши:
+# 1. Структуру документа (розділи, підрозділи)
+# 2. Тип документа та його призначення
+# 3. Які дані потрібно заповнити в кожній секції
+# 4. Особливості оформлення та стилю
 
-Користувацький запит: {analysis_prompt if analysis_prompt else 'Проаналізуй структуру документа'}
+# Користувацький запит: {analysis_prompt if analysis_prompt else 'Проаналізуй структуру документа'}
+
+# ТЕКСТ ДОКУМЕНТА:
+# {text_content[:500000]}  # Limit to 500k chars
+
+# Надій детальний аналіз українською мовою."""
+        
+        prompt = f"""Проаналізуй структуру документа: виведи розділи, підрозділи та таблиці у порядку розташування.
+
+ФОРМАТ — кожен елемент в одному рядку, перенос заборонений:
+- Розділ з текстом: N| [назва][рівень] | загальний опис ## Наприклад: конкретний опис |
+- Розділ без тексту: N| [назва][рівень] |
+- Таблиця: N| [назва таблиці][рівень] [стовпець 1 | стовпець 2 | стовпець 3] |
+
+РІВНІ: [0] головний заголовок, [1] розділ, [2] підрозділ, [3][4] далі за вкладеністю. Таблиця — на рівень глибше розділу де знаходиться. Кожен заголовок — окремий рядок, не об'єднувати.
+
+ОПИС — рівно одне речення для кожної частини, обидві частини обов'язкові якщо є текст:
+- Загальний опис: призначення цього типу розділу без жодних слів з документа, підходить для будь-якої галузі. Починати одразу з дієслова або іменника, без вступних слів
+- ## Наприклад:: конкретний зміст з деталями з документа
+
+ТАБЛИЦІ:
+- Назва таблиці — це підпис типу 'Таблиця 1', 'Таблиця 2' розташований над або під таблицею. Якщо підпису немає — використати перший рядок шапки як назву
+- Заголовки стовпців — всі текстові назви із шапки таблиці включно з першим стовпцем
+- Якщо таблиця має однакові стовпці що повторюються — включати лише унікальні назви
+- Не включати: дані рядків, числа, рядок з цифрами 1 2 3
+- Роздільник: |
+- 'Назва, %' — один заголовок
 
 ТЕКСТ ДОКУМЕНТА:
-{text_content[:15000]}  # Limit to 15k chars
+{text_content[:500000]}
 
-Надій детальний аналіз українською мовою."""
-        
+Відповідь українською."""
+
         response = client.models.generate_content(
             model=REASONING_MODEL,
             contents=prompt,

@@ -25,6 +25,31 @@ def login_required(f):
 
 # --- Routes ---
 
+def extract_text_from_docx(file_path):
+    """
+    Extract text from DOCX file.
+    
+    Args:
+        file_path: path to DOCX file
+    
+    Returns:
+        extracted text as string
+    """
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        
+        text_parts = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                text_parts.append(para.text.strip())
+        
+        return '\n\n'.join(text_parts)
+    except Exception as e:
+        logger.error(f"Failed to extract text from DOCX: {e}")
+        return None
+
+
 @pptx_generator_bp.route('/')
 @login_required
 def index():
@@ -323,3 +348,51 @@ def validate_json():
     except Exception as e:
         logger.error(f"Validation error: {e}")
         return jsonify({'error': f'Validation failed: {str(e)}'}), 500
+
+
+@pptx_generator_bp.route('/api/upload-docx', methods=['POST'])
+@login_required
+def upload_docx():
+    """
+    Upload and extract text from DOCX file.
+    
+    Returns:
+        Extracted text from DOCX file
+    """
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.docx'):
+            return jsonify({'error': 'File must be a .docx file'}), 400
+        
+        # Save uploaded file temporarily
+        temp_dir = tempfile.mkdtemp(prefix='docx_upload_')
+        file_path = os.path.join(temp_dir, file.filename)
+        file.save(file_path)
+        
+        # Extract text
+        text = extract_text_from_docx(file_path)
+        
+        # Cleanup
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        if text is None:
+            return jsonify({'error': 'Failed to extract text from DOCX'}), 500
+        
+        logger.info(f"Extracted {len(text)} characters from DOCX")
+        
+        return jsonify({
+            'success': True,
+            'text': text,
+            'filename': file.filename
+        })
+        
+    except Exception as e:
+        logger.error(f"DOCX upload error: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500

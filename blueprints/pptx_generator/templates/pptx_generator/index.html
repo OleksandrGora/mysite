@@ -10,7 +10,8 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #f5f5f5;
             padding: 20px;
-            max-width: 1200px;
+            width: 80%;
+            max-width: 80%;
             margin: 0 auto;
         }
         h1 { margin-bottom: 20px; color: #333; }
@@ -187,66 +188,24 @@
         <a href="/" class="btn-secondary">На головну</a>
     </div>
     
-    <div class="container">
+    <div class="container" style="grid-template-columns: 1fr;">
         <div class="panel">
-            <h2>Введіть JSON даних</h2>
+            <h2>Введіть текст або JSON</h2>
             <div class="form-group">
-                <label>JSON структура слайдів</label>
-                <textarea id="json-input" placeholder='[
-  {
-    "title": "Назва слайду",
-    "body": "Основний текст слайду",
-    "image_description": "Опис ілюстрації (опціонально)"
-  }
-]'></textarea>
+                <textarea id="json-input" placeholder="Введіть текст для презентації або JSON масив об'єктів з полями title, body, image_description"></textarea>
             </div>
             
             <div class="actions">
-                <button class="btn-secondary" onclick="loadExample()">Завантажити приклад</button>
-                <button class="btn-secondary" onclick="validateJSON()">Перевірити JSON</button>
+                <input type="file" id="file-upload" accept=".txt,.json,.docx" style="display: none;">
+                <button class="btn-secondary" onclick="document.getElementById('file-upload').click()">
+                    Завантажити файл (.txt, .json, .docx)
+                </button>
                 <button class="btn-primary" id="btn-generate" onclick="generatePPTX()">
                     Створити презентацію
                 </button>
             </div>
             
             <div id="validation-result" class="validation-result"></div>
-        </div>
-        
-        <div class="panel">
-            <h2>Інструкція</h2>
-            <p style="margin-bottom: 15px; color: #666;">
-                Введіть JSON масив об'єктів, де кожен об'єкт представляє один слайд презентації.
-            </p>
-            
-            <h3>Обов'язкові поля:</h3>
-            <ul style="margin: 10px 0 15px 20px; color: #666;">
-                <li><strong>title</strong> - назва слайду</li>
-                <li><strong>body</strong> - основний текст слайду</li>
-            </ul>
-            
-            <h3>Опціональні поля:</h3>
-            <ul style="margin: 10px 0 15px 20px; color: #666;">
-                <li><strong>image_description</strong> - опис ілюстрації для генерації (поки що створює placeholder)</li>
-            </ul>
-            
-            <div class="example-section">
-                <h3>Приклад JSON:</h3>
-                <div class="example-code">[
-  {
-    "title": "Вступ",
-    "body": "Це перший слайд із текстом.",
-    "image_description": "Схема процесу з трьома кроками"
-  },
-  {
-    "title": "Основна частина",
-    "body": "Тут можна додати опис проекту."
-  },
-  {
-    "title": "Висновки",
-    "body": "Фінальний слайд презентації."
-  }
-]</div>
-            </div>
         </div>
     </div>
     
@@ -262,99 +221,59 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        function loadExample() {
-            const example = [
-                {
-                    "title": "Вступ",
-                    "body": "Це перший слайд із текстом.",
-                    "image_description": "Схема процесу з трьома кроками"
-                },
-                {
-                    "title": "Основна частина",
-                    "body": "Тут можна додати опис проекту."
-                },
-                {
-                    "title": "Висновки",
-                    "body": "Фінальний слайд презентації."
-                }
-            ];
-            document.getElementById('json-input').value = JSON.stringify(example, null, 2);
-            showToast('Приклад завантажено', 'info');
-        }
-        
-        async function validateJSON() {
-            const input = document.getElementById('json-input').value;
-            const resultDiv = document.getElementById('validation-result');
+        // File upload handler
+        document.getElementById('file-upload').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
             
-            if (!input.trim()) {
-                resultDiv.className = 'validation-result invalid';
-                resultDiv.style.display = 'block';
-                resultDiv.textContent = 'Поле не може бути порожнім';
-                return false;
+            // Handle DOCX files
+            if (file.name.endsWith('.docx')) {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                try {
+                    const response = await fetch(`${API_BASE}/api/upload-docx`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        document.getElementById('json-input').value = result.text;
+                        showToast('DOCX файл завантажено', 'success');
+                    } else {
+                        showToast(result.error || 'Помилка завантаження DOCX', 'error');
+                    }
+                } catch (err) {
+                    showToast('Помилка: ' + err.message, 'error');
+                }
+                return;
             }
             
-            try {
-                const response = await fetch(`${API_BASE}/api/validate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: input
-                });
-                
-                const result = await response.json();
-                
-                resultDiv.style.display = 'block';
-                
-                if (result.valid) {
-                    resultDiv.className = 'validation-result valid';
-                    let message = `✓ Валідно! ${result.slide_count} слайдів`;
-                    
-                    if (result.llm_fixed) {
-                        message += '\n\nJSON автоматично виправлено LLM';
-                        // Update the textarea with fixed data
-                        if (result.fixed_data) {
-                            document.getElementById('json-input').value = JSON.stringify(result.fixed_data, null, 2);
-                        }
-                    }
-                    
-                    if (result.warnings.length > 0) {
-                        message += '\n\nПопередження:\n' + result.warnings.join('\n');
-                        resultDiv.className = 'validation-result warnings';
-                    }
-                    resultDiv.textContent = message;
-                    showToast('JSON валідний', 'success');
-                    return true;
-                } else {
-                    resultDiv.className = 'validation-result invalid';
-                    resultDiv.textContent = 'Помилки:\n' + result.errors.join('\n');
-                    showToast('Помилки у JSON', 'error');
-                    return false;
-                }
-            } catch (e) {
-                resultDiv.className = 'validation-result invalid';
-                resultDiv.style.display = 'block';
-                resultDiv.textContent = 'Помилка валідації: ' + e.message;
-                showToast('Помилка валідації', 'error');
-                return false;
-            }
-        }
+            // Handle TXT and JSON files
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('json-input').value = e.target.result;
+                showToast('Файл завантажено', 'success');
+            };
+            reader.readAsText(file);
+        });
         
         async function generatePPTX() {
             const input = document.getElementById('json-input').value;
             const btn = document.getElementById('btn-generate');
+            const resultDiv = document.getElementById('validation-result');
             
             if (!input.trim()) {
-                showToast('Введіть JSON дані', 'error');
+                showToast('Введіть текст або JSON', 'error');
                 return;
             }
             
-            // Validate first
-            const isValid = await validateJSON();
-            if (!isValid) {
-                return;
-            }
-            
+            // Show spinner immediately
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Генерація...';
+            resultDiv.style.display = 'none';
             
             try {
                 const response = await fetch(`${API_BASE}/api/generate`, {

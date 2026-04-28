@@ -1,0 +1,13 @@
+{
+  "task_id": "30f8165e",
+  "created_at": "2026-04-28T14:59:39.270436",
+  "updated_at": "2026-04-28T15:08:39.505582",
+  "status": "idle",
+  "template_file": "ЛР7.txt",
+  "source_files": [],
+  "analysis_prompt": "",
+  "generation_prompt": "",
+  "analysis_result": "analysis.txt",
+  "final_document": null,
+  "error_message": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+}

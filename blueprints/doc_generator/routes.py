@@ -3,6 +3,7 @@ import sys
 import json
 import uuid
 import time
+import shutil
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
 from loguru import logger
@@ -18,7 +19,7 @@ from .reasoning.generator import generate_all_content
 from .builders.docx_builder import build_document, build_document_simple
 from .rag.embedder import embed_all_sources, should_use_rag
 from .rag.retriever import retrieve_for_section, format_chunks_for_llm
-from .config import USE_RAG
+from .config import USE_RAG, ANALYSIS_PROMPT, LLM_ANALYSIS_PROMPT
 from .cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
@@ -34,7 +35,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'email' not in session:
-            if request.is_json or request.path.startswith('/api/'):
+            if request.is_json or '/api/' in request.path:
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
@@ -42,7 +43,7 @@ def login_required(f):
 
 # --- File Validation ---
 
-ALLOWED_EXTENSIONS = {'.docx', '.pdf', '.DOCX', '.PDF'}
+ALLOWED_EXTENSIONS = {'.docx', '.pdf', '.DOCX', '.PDF', '.txt', '.TXT', '.ppt', '.pptx', '.PPT', '.PPTX', '.doc', '.DOC', '.xls', '.xlsx', '.XLS', '.XLSX'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 def allowed_file(filename):
@@ -196,14 +197,11 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
                 # LLM Analysis - get insights before planning
                 update_status('processing', progress=53, message='LLM: Analyzing how to fill template with source data...')
                 
-                first_prompt = f"""Проаналізуй структуру шаблону та джерел.
-
-Шаблон має {len(template_structure.get('sections', []))} секцій та {len(template_structure.get('tables', []))} таблиць.
-
-Користувацький запит: {user_prompt if user_prompt else 'Створити документ відповідно до джерел'}
-
-Поверни детальний план заповнення кожної секції та таблиці даними з джерел.
-"""
+                first_prompt = LLM_ANALYSIS_PROMPT.format(
+                    num_sections=len(template_structure.get('sections', [])),
+                    num_tables=len(template_structure.get('tables', [])),
+                    user_prompt=user_prompt if user_prompt else 'Створити документ відповідно до джерел'
+                )
                 
                 response1 = llm_call_with_retry(first_prompt, "LLM Analysis")
                 first_llm_response = response1.text
@@ -609,25 +607,30 @@ def run_cleanup():
 @login_required
 def download_result(task_id):
     """Download completed document."""
-    data_dir = current_app.config.get('DATA_DIR', '/home/openclaw/mysite/data')
-    task_json_path = os.path.join(data_dir, 'tasks', task_id, 'task.json')
+    sys.stderr.write(f"[DOWNLOAD] Request for task {task_id}\n")
+    task = get_task_by_id(task_id)
+    sys.stderr.write(f"[DOWNLOAD] Task found: {task is not None}\n")
     
-    if not os.path.exists(task_json_path):
+    if not task:
         return jsonify({'error': 'Task not found'}), 404
     
-    with open(task_json_path, 'r') as f:
-        task_data = json.load(f)
-    
-    if task_data.get('status') != 'completed':
+    if task.get('status') != 'completed':
         return jsonify({'error': 'Task not completed'}), 400
     
-    output_file = task_data.get('output_file')
-    if not output_file or not os.path.exists(output_file):
-        return jsonify({'error': 'Output file not found'}), 404
+    final_doc = task.get('final_document')
+    folder_path = task.get('folder_path')
     
-    # Use the actual filename for download
-    download_name = os.path.basename(output_file)
-    return send_file(output_file, as_attachment=True, download_name=download_name)
+    sys.stderr.write(f"[DOWNLOAD] final_doc={final_doc}, folder_path={folder_path}\n")
+    
+    if not final_doc or not folder_path:
+        return jsonify({'error': 'No document available'}), 404
+    
+    file_path = os.path.join(folder_path, final_doc)
+    if not os.path.exists(file_path):
+        sys.stderr.write(f"[DOWNLOAD] File not found: {file_path}\n")
+        return jsonify({'error': 'File not found'}), 404
+    
+    return send_file(file_path, as_attachment=True, download_name=final_doc)
 
 
 # ============================================================================
@@ -694,26 +697,17 @@ def create_new_task():
 @login_required
 def get_task(task_id):
     """Get task details."""
-    sys.stderr.write(f"[API] Get task request: {task_id}\n")
-    
-    # Get all tasks first for debugging
-    all_tasks = get_all_tasks()
-    sys.stderr.write(f"[API] Total tasks loaded: {len(all_tasks)}\n")
-    sys.stderr.write(f"[API] Available task IDs: {[t.get('task_id') for t in all_tasks]}\n")
-    
+    sys.stderr.write(f"[GET /api/tasks/{task_id}] Request received\n")
     task = get_task_by_id(task_id)
+    sys.stderr.write(f"[GET /api/tasks/{task_id}] Task found: {task is not None}\n")
     if not task:
-        sys.stderr.write(f"[API] Task not found: {task_id}\n")
         return jsonify({'error': 'Task not found'}), 404
-    
-    sys.stderr.write(f"[API] Task found: {task_id}, folder={task.get('folder_name')}\n")
     
     # Load analysis if exists
     folder_path = task.get('folder_path')
     if folder_path and task.get('analysis_result'):
         analysis_text = load_analysis_result(folder_path)
         task['analysis_content'] = analysis_text
-        sys.stderr.write(f"[API] Analysis loaded: {len(analysis_text) if analysis_text else 0} chars\n")
     
     return jsonify(task)
 
@@ -910,88 +904,83 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     from google import genai
     
     logger.info(f"[ANALYZE] Starting analysis for task {task_id}")
+    logger.info(f"[ANALYZE] Folder path: {folder_path}")
     
     try:
         update_task_status(folder_path, 'analyzing')
         
         # Load task info
+        logger.info(f"[ANALYZE] Loading task info from {folder_path}")
         task_info = load_task_info(folder_path)
+        logger.info(f"[ANALYZE] Task info loaded: {task_info}")
+        
         template_file = task_info.get('template_file')
+        logger.info(f"[ANALYZE] Template file: {template_file}")
+        
         template_path = os.path.join(TEMPLATES_DIR, template_file)
+        logger.info(f"[ANALYZE] Full template path: {template_path}")
         
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"Template not found: {template_file}")
         
         # Parse template for text extraction
+        logger.info(f"[ANALYZE] Parsing template...")
         from .parsers.template_parser import parse_template
         template_data = parse_template(template_path)
+        logger.info(f"[ANALYZE] Template data type: {type(template_data)}")
+        logger.info(f"[ANALYZE] Template data: {str(template_data)[:200]}")
+        
+        # Check if template_data is a dict
+        if not isinstance(template_data, dict):
+            logger.error(f"[ANALYZE] ERROR: template_data is not dict, it's {type(template_data)}")
+            raise TypeError(f"Expected dict from parse_template, got {type(template_data)}")
+        
+        logger.info(f"[ANALYZE] Template parsed, keys: {list(template_data.keys())}")
         
         # Get text content for LLM
         text_content = template_data.get('text', '')
+        logger.info(f"[ANALYZE] Text content length: {len(text_content)}")
+        
         if not text_content:
             # For PDF, extract text differently
             if template_path.lower().endswith('.pdf'):
+                logger.info(f"[ANALYZE] Extracting text from PDF...")
                 import fitz
                 doc = fitz.open(template_path)
                 text_content = ""
                 for page in doc:
                     text_content += page.get_text()
                 doc.close()
+                logger.info(f"[ANALYZE] PDF text extracted, length: {len(text_content)}")
         
         # Call LLM for analysis
+        logger.info(f"[ANALYZE] Initializing LLM client...")
         client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
         
         if not client:
             raise ValueError("No API key configured")
         
-#         prompt = f"""Проаналізуй наступний документ-шаблон і опиши:
-# 1. Структуру документа (розділи, підрозділи)
-# 2. Тип документа та його призначення
-# 3. Які дані потрібно заповнити в кожній секції
-# 4. Особливості оформлення та стилю
-
-# Користувацький запит: {analysis_prompt if analysis_prompt else 'Проаналізуй структуру документа'}
-
-# ТЕКСТ ДОКУМЕНТА:
-# {text_content[:500000]}  # Limit to 500k chars
-
-# Надій детальний аналіз українською мовою."""
+        # Debug: check types before format
+        logger.info(f"[ANALYZE] ANALYSIS_PROMPT type: {type(ANALYSIS_PROMPT)}")
+        logger.info(f"[ANALYZE] text_content type: {type(text_content)}")
+        logger.info(f"[ANALYZE] ANALYSIS_PROMPT value: {str(ANALYSIS_PROMPT)[:100]}...")
         
-        prompt = f"""Проаналізуй структуру документа: виведи розділи, підрозділи та таблиці у порядку розташування.
+        prompt = ANALYSIS_PROMPT.format(text_content=text_content[:500000])
+        logger.info(f"[ANALYZE] Prompt prepared, length: {len(prompt)}")
 
-ФОРМАТ — кожен елемент в одному рядку, перенос заборонений:
-- Розділ з текстом: N| [назва][рівень] | загальний опис ## Наприклад: конкретний опис |
-- Розділ без тексту: N| [назва][рівень] |
-- Таблиця: N| [назва таблиці][рівень] [стовпець 1 | стовпець 2 | стовпець 3] |
-
-РІВНІ: [0] головний заголовок, [1] розділ, [2] підрозділ, [3][4] далі за вкладеністю. Таблиця — на рівень глибше розділу де знаходиться. Кожен заголовок — окремий рядок, не об'єднувати.
-
-ОПИС — рівно одне речення для кожної частини, обидві частини обов'язкові якщо є текст:
-- Загальний опис: призначення цього типу розділу без жодних слів з документа, підходить для будь-якої галузі. Починати одразу з дієслова або іменника, без вступних слів
-- ## Наприклад:: конкретний зміст з деталями з документа
-
-ТАБЛИЦІ:
-- Назва таблиці — це підпис типу 'Таблиця 1', 'Таблиця 2' розташований над або під таблицею. Якщо підпису немає — використати перший рядок шапки як назву
-- Заголовки стовпців — всі текстові назви із шапки таблиці включно з першим стовпцем
-- Якщо таблиця має однакові стовпці що повторюються — включати лише унікальні назви
-- Не включати: дані рядків, числа, рядок з цифрами 1 2 3
-- Роздільник: |
-- 'Назва, %' — один заголовок
-
-ТЕКСТ ДОКУМЕНТА:
-{text_content[:500000]}
-
-Відповідь українською."""
-
+        logger.info(f"[ANALYZE] Calling LLM model: {REASONING_MODEL}...")
         response = client.models.generate_content(
             model=REASONING_MODEL,
             contents=prompt,
             config={"temperature": TEMPERATURE}
         )
+        logger.info(f"[ANALYZE] LLM response received, type: {type(response)}")
         
         analysis_text = response.text
+        logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
         
         # Save analysis
+        logger.info(f"[ANALYZE] Saving analysis result...")
         save_analysis_result(folder_path, analysis_text)
         update_task_status(folder_path, 'idle')
         
@@ -999,7 +988,9 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         return {'status': 'success', 'task_id': task_id}
         
     except Exception as e:
+        import traceback
         logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
+        logger.error(f"[ANALYZE] Traceback: {traceback.format_exc()}")
         update_task_status(folder_path, 'failed', str(e))
         raise self.retry(exc=e, countdown=60)
 

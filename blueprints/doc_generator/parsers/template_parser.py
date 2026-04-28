@@ -39,8 +39,10 @@ def parse_template(template_path: str) -> Dict[str, Any]:
         return parse_pdf_template(template_path)
     elif ext == '.docx':
         return parse_docx_template(template_path)
+    elif ext == '.txt':
+        return parse_txt_template(template_path)
     else:
-        raise ValueError(f"Unsupported template format: {ext}. Use DOCX or PDF.")
+        raise ValueError(f"Unsupported template format: {ext}. Use DOCX, PDF or TXT.")
 
 
 @dataclass
@@ -247,6 +249,53 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
     }
     
     logger.info(f"PDF parsed: {result['pages']} pages, {len(sections)} sections detected")
+    return result
+
+
+def parse_txt_template(txt_path: str) -> Dict[str, Any]:
+    """
+    Parse a TXT file as a template - extract text structure.
+    
+    Args:
+        txt_path: Path to the TXT file
+        
+    Returns:
+        Dictionary with template structure
+    """
+    logger.info(f"Parsing TXT template: {txt_path}")
+    
+    with open(txt_path, 'r', encoding='utf-8') as f:
+        text_content = f.read()
+    
+    # Try to identify sections (lines that look like headers)
+    lines = text_content.split('\n')
+    sections = []
+    for i, line in enumerate(lines):
+        line = line.strip()
+        # Heuristic: short lines, often with numbers or uppercase
+        if line and len(line) < 100 and (line.isupper() or re.match(r'^\d+[\.\)]', line)):
+            sections.append({
+                'title': line,
+                'level': 0 if line.isupper() else 1,
+                'line': i
+            })
+    
+    result = {
+        'title': os.path.basename(txt_path),
+        'source_file': txt_path,
+        'is_txt': True,
+        'text': text_content,
+        'sections': sections if sections else [
+            {'title': 'Section 1', 'level': 0},
+            {'title': 'Section 2', 'level': 0}
+        ],
+        'tables': [],  # No tables in plain text
+        'paragraph_count': len([l for l in lines if l.strip()]),
+        'has_headers': len(sections) > 0,
+        'pages': 1
+    }
+    
+    logger.info(f"TXT parsed: {len(text_content)} chars, {len(sections)} sections detected")
     return result
 
 

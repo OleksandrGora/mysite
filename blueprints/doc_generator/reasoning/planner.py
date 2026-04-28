@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from google import genai
-from ..config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE
+from ..config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE, PLANNER_ANALYSIS_PROMPT, PLANNER_GENERATION_PROMPT
 
 # Initialize client
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -329,72 +329,13 @@ def build_planner_prompt(
             tbl_desc += f" with headers: {headers}"
         tables_text.append(tbl_desc)
     
-    prompt = f"""Ти — експерт з аналізу документів і створення планів генерації.
-
-Твоє завдання: проаналізувати шаблон документа та вміст джерел, і створити детальний план для генерації нового документа.
-
-## ШАБЛОН ДОКУМЕНТА
-
-Заголовок шаблону: {template_title}
-
-Секції шаблону (рівень вкладеності [X]):
-{chr(10).join(sections_text) if sections_text else "  (не знайдено секцій)"}
-
-Таблиці в шаблоні:
-{chr(10).join(tables_text) if tables_text else "  (не знайдено таблиць)"}
-
-## ДЖЕРЕЛА ДАНИХ
-
-Загальний обсяг тексту: {total_chars} символів
-
-Джерела:
-{sources_text}
-
-## ЗАВДАННЯ
-
-Створи JSON план (DocumentPlan) який визначає:
-
-1. **document_title** — згенеруй відповідну назву документа на основі шаблону і джерел
-2. **document_type** — тип документа (report, letter, act, contract, etc.)
-3. **target_audience** — хто буде читати цей документ
-4. **overall_tone** — загальний тон (formal, business, technical, legal)
-5. **sections** — для кожної секції шаблону:
-   - content_type: що це за частина (introduction, body, conclusion, summary)
-   - key_points: ключові моменти які тут мають бути (3-5 пунктів)
-   - tone: тон для цієї секції
-   - max_length_words: приблизна кількість слів (100-500)
-   - source_references: які джерела використати
-
-6. **tables** — для кожної таблиці:
-   - purpose: що має бути в таблиці
-   - estimated_rows: скільки рядків потрібно (1-20)
-   - data_source_hint: звідки брати дані
-
-7. **sources_summary** — короткий опис кожного джерела у форматі словника: {{"filename.pdf": "опис джерела", ...}}
-
-ВАЖЛИВО:
-- Всі тексти мають бути українською мовою (діловий стиль)
-- План має бути реалістичним — не більше 3-5 рядків в таблиці, 100-300 слів в секції
-- Якщо даних в джерелах не вистачає — вкажи це в notes
-- Поверни ТІЛЬКИ JSON, без додаткових пояснень
-- Використовуй текст джерела для наповнення кожної секції дослівно або максимально близько до оригіналу.
-- Твоє завдання — точно відтворити структуру шаблона, наповнити змістом з джерела
-
-Приклад структури відповіді:
-```json
-{{
-  "document_title": "Звіт про виконання робіт",
-  "document_type": "report",
-  "target_audience": "Керівництво компанії",
-  "overall_tone": "formal",
-  "sections": [...],
-  "tables": [...],
-  "sources_summary": {{"source1.pdf": "Опис першого джерела", "source2.pdf": "Опис другого джерела"}}
-}}
-```
-
-{chr(10) + chr(10) + "## ДОДАТКОВІ ІНСТРУКЦІЇ ВІД КОРИСТУВАЧА" + chr(10) + chr(10) + user_prompt + chr(10) + chr(10) + "Врахуй ці інструкції при створенні плану документа." if user_prompt else ""}
-"""
+    prompt = PLANNER_GENERATION_PROMPT.format(
+        template_title=template_title,
+        sections_text=chr(10).join(sections_text) if sections_text else "  (не знайдено секцій)",
+        tables_text=chr(10).join(tables_text) if tables_text else "  (не знайдено таблиць)",
+        total_chars=total_chars,
+        sources_text=sources_text
+    )
     
     return prompt
 

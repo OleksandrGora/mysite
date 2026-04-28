@@ -87,6 +87,7 @@
             border-radius: 6px;
             margin-bottom: 10px;
             transition: background 0.2s;
+            cursor: pointer;
         }
         .task-item:hover { background: #f9f9f9; }
         
@@ -494,22 +495,19 @@
                 const hasResult = task.final_document ? true : false;
                 
                 return `
-                    <div class="task-item">
+                    <div class="task-item" onclick="openTaskModal('${task.task_id}')">
                         <div class="task-info">
                             <div class="task-name">${task.folder_name || 'Без назви'}</div>
                             <div class="task-meta">
-                                Шаблон: ${task.template_file || '-'} | 
+                                Шаблон: ${task.template_file || '-'} |
                                 Створено: ${formatDate(task.created_at)}
                             </div>
                         </div>
                         <div style="display: flex; align-items: center;">
                             <span class="task-status ${statusClass}">${statusText}</span>
                             <div class="task-actions">
-                                <button class="btn-secondary" onclick="openTaskModal('${task.task_id}')">
-                                    Відкрити
-                                </button>
                                 ${hasResult ? `
-                                    <button class="btn-success" onclick="downloadResult('${task.task_id}')">
+                                    <button class="btn-success" onclick="event.stopPropagation(); downloadResult('${task.task_id}')">
                                         Завантажити
                                     </button>
                                 ` : ''}
@@ -613,10 +611,12 @@
                     if (task.analysis_content) {
                         document.getElementById('analysis-content').value = task.analysis_content;
                         document.getElementById('analysis-result-container').style.display = 'block';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон (повторно)';
                         log('Аналіз завантажено', 'success');
                     } else {
                         document.getElementById('analysis-content').value = '';
                         document.getElementById('analysis-result-container').style.display = 'none';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
                     }
                     
                     deleteBtn.style.display = 'inline-block';
@@ -635,6 +635,7 @@
                 document.getElementById('template-file').value = '';
                 document.getElementById('analysis-content').value = '';
                 document.getElementById('analysis-result-container').style.display = 'none';
+                document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
                 deleteBtn.style.display = 'none';
             }
             
@@ -650,7 +651,7 @@
         async function uploadFile(type) {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.docx,.pdf';
+            input.accept = '.docx,.pdf,.txt,.ppt,.pptx,.doc,.xls,.xlsx';
             input.onchange = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -732,19 +733,31 @@
                         })
                     });
                     
-                    const result = await response.json();
+                    let result = await response.json();
                     
                     // Handle duplicate task
                     if (response.status === 409 && result.duplicate) {
                         log(`Знайдено існуюче завдання: ${result.existing_task_name}`, 'info');
-                        const useExisting = confirm(`Завдання з цим шаблоном вже існує: "${result.existing_task_name}"\n\nВідкрити існуюче завдання?`);
-                        if (useExisting) {
-                            closeTaskModal();
-                            setTimeout(() => openTaskModal(result.existing_task_id), 100);
+                        const createNew = confirm(`Завдання з цим шаблоном вже існує: "${result.existing_task_name}"\n\nТаке завдання існує. Створити нове завдання?`);
+                        if (createNew) {
+                            // Retry with force=true to create new task with numbered name
+                            log('Створення нового завдання з force=true', 'info');
+                            const forceResponse = await fetch(`${API_BASE}/api/task`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    template_file: templateFile,
+                                    analysis_prompt: analysisPrompt,
+                                    force: true
+                                })
+                            });
+                            const forceResult = await forceResponse.json();
+                            if (forceResult.error) throw new Error(forceResult.error);
+                            result = forceResult; // Use force result for further processing
+                        } else {
+                            log('Користувач відмінив створення завдання', 'info');
                             return;
                         }
-                        log('Користувач відхилив відкриття існуючого завдання', 'info');
-                        return;
                     }
                     
                     if (result.error) throw new Error(result.error);

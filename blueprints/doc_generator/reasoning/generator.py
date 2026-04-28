@@ -13,7 +13,11 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from google import genai
-from ..config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE, MAX_TOKENS_PER_SECTION, MAX_TOKENS_FOR_TABLE
+from ..config import (
+    GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE,
+    MAX_TOKENS_PER_SECTION, MAX_TOKENS_FOR_TABLE,
+    SECTION_GENERATION_PROMPT, TABLE_GENERATION_PROMPT
+)
 
 # Initialize client
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -64,42 +68,11 @@ def build_section_prompt(
     
     key_points_text = '\n'.join(f"- {kp}" for kp in key_points)
     
-    prompt = f"""Відтвори текст секції документа на основі наданих джерел українською мовою.
-
-## КОНТЕКСТ ДОКУМЕНТА
-
-Тип: {document_context.get('document_type', 'document')}
-Загальний тон: {document_context.get('overall_tone', 'formal')}
-
-## ЗАВДАННЯ
-
-Секція: "{title}"
-Тип секції: {content_type}
-Тон: {tone}
-Приблизна довжина: {max_words} слів (±20%)
-
-Ключові моменти які мають бути в тексті:
-{key_points_text}
-
-## ДЖЕРЕЛА
-
-{sources_block}
-
-## ВИМОГИ ДО ТЕКСТУ
-
-1. Стиль: діловий український документ
-2. Не використовуй markdown заголовки (це лише текст секції)
-3. Не починай з "Ця секція присвячена..." — відразу зміст
-4. Використай інформацію з джерел, але переформулюй своїми словами
-5. Якщо даних недостатньо — зазнач це як "[вимагає уточнення]"
-6. Не більше {max_words} слів
-7. НЕ вигадуй нічого що не є в джерелах.
-8. НЕ використовуй загальні фрази замість конкретних даних.
-
-{chr(10) + "## ДОДАТКОВІ ІНСТРУКЦІЇ ВІД КОРИСТУВАЧА" + chr(10) + chr(10) + user_prompt + chr(10) + chr(10) + "Врахуй ці інструкції при написанні тексту." if user_prompt else ""}
-
-Поверни ТІЛЬКИ готовий текст секції, без пояснень.
-"""
+    prompt = SECTION_GENERATION_PROMPT.format(
+        section_name=title,
+        section_description=f"Тип: {content_type}, Тон: {tone}, Довжина: {max_words} слів",
+        sources=sources_block
+    )
     
     return prompt
 
@@ -128,41 +101,11 @@ def build_table_prompt(
     
     headers_text = ', '.join(columns) if columns else "(headers from template)"
     
-    prompt = f"""Згенеруй дані для таблиці на основі джерел.
-
-## ПРИЗНАЧЕННЯ ТАБЛИЦІ
-
-{purpose}
-
-## СТРУКТУРА
-
-Колонки: {headers_text}
-Приблизна кількість рядків: {estimated_rows}
-
-## ДЖЕРЕЛА
-
-{sources_block}
-
-## ВИМОГИ
-
-1. Поверни дані у форматі JSON масиву масивів
-2. Кожен внутрішній масив — це рядок таблиці
-3. Порядок значень відповідає колонкам: {headers_text}
-4. Якщо даних недостатньо — поверни менше рядків
-5. Значення мають бути короткими (1-3 слова), крім описових колонок
-6. Не повертай заголовки — тільки дані
-
-КРИТИЧНО: Дані для таблиці ТІЛЬКИ з наданих джерел. Не вигадуй значення.
-Якщо в джерелі є таблиця з такою ж структурою — відтвори її точно.
-Якщо даних не вистачає — поверни менше рядків, але з коректними значеннями.
-
-Приклад формату:
-```json
-[["знач1", "знач2"], ["знач3", "знач4"]]
-```
-
-Поверни ТІЛЬКИ JSON масив, без додаткового тексту.
-"""
+    prompt = TABLE_GENERATION_PROMPT.format(
+        table_name=table_name,
+        columns=headers_text,
+        sources=sources_block
+    )
     
     return prompt
 

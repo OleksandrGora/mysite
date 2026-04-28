@@ -14,13 +14,32 @@ from functools import wraps
 from . import doc_generator_bp
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
-from .reasoning.planner import create_document_plan, save_plan
+try:
+    from .reasoning.planner import create_document_plan, save_plan
+except ImportError:
+    # planner.py may not exist - old architecture
+    create_document_plan = None
+    save_plan = None
 from .reasoning.generator import generate_all_content
 from .builders.docx_builder import build_document, build_document_simple
-from .rag.embedder import embed_all_sources, should_use_rag
-from .rag.retriever import retrieve_for_section, format_chunks_for_llm
+try:
+    from .rag.embedder import embed_all_sources, should_use_rag
+    from .rag.retriever import retrieve_for_section, format_chunks_for_llm
+except ImportError:
+    # RAG module may not exist
+    embed_all_sources = None
+    should_use_rag = None
+    retrieve_for_section = None
+    format_chunks_for_llm = None
 from .config import USE_RAG, ANALYSIS_PROMPT, LLM_ANALYSIS_PROMPT
-from .cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
+try:
+    from .cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
+except ImportError:
+    # cleanup module may not exist
+    cleanup_old_tasks = None
+    cleanup_chroma_collections = None
+    get_task_stats = None
+    get_disk_usage = None
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
@@ -86,8 +105,13 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
     """
     Process document generation task.
     Stage 3: Parsing template and sources.
+    NOTE: This is the OLD architecture - requires planner.py
     """
     from loguru import logger
+    
+    if create_document_plan is None or save_plan is None:
+        logger.error(f"[{task_id}] OLD architecture not available - planner.py missing")
+        raise ValueError("OLD architecture not available. Use new architecture: POST /api/task → /api/tasks/<id>/analysis → /api/tasks/<id>/generate")
     
     task_dir = os.path.join(data_dir, 'tasks', task_id)
     task_json_path = os.path.join(task_dir, 'task.json')

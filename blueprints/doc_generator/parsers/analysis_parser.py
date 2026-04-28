@@ -87,8 +87,15 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
             ))
         elif item_type == 'text':
             description = item.get('description', {})
-            desc_general = description.get('general', '') if isinstance(description, dict) else str(description)
-            desc_specific = description.get('specific', '') if isinstance(description, dict) else ''
+            if description is None:
+                desc_general = ''
+                desc_specific = ''
+            elif isinstance(description, dict):
+                desc_general = description.get('general', '')
+                desc_specific = description.get('specific', '')
+            else:
+                desc_general = str(description)
+                desc_specific = ''
             
             # Parse word count range if present
             word_count_range = None

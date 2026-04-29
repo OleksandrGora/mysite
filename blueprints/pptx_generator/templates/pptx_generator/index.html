@@ -82,6 +82,70 @@
             font-weight: 500;
             color: #444;
         }
+        
+        .provider-selector {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 6px;
+        }
+        .provider-selector > label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .provider-row {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .radio-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-weight: 400;
+        }
+        .radio-label input[type="radio"] {
+            cursor: pointer;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-weight: 400;
+            padding-left: 15px;
+            border-left: 1px solid #ddd;
+        }
+        .checkbox-label input[type="checkbox"] {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+        }
+        .token-display {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-left: 15px;
+            border-left: 1px solid #ddd;
+            font-size: 14px;
+            color: #666;
+        }
+        .token-display .token-value {
+            font-weight: 600;
+            color: #1976d2;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        .token-display .token-label {
+            font-size: 13px;
+        }
         textarea {
             width: 100%;
             padding: 12px;
@@ -195,6 +259,30 @@
                 <textarea id="json-input" placeholder="Введіть текст для презентації або JSON масив об'єктів з полями title, body, image_description"></textarea>
             </div>
             
+            <div class="provider-selector">
+                <label>Провайдер генерації зображень:</label>
+                <div class="provider-row">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="image-provider" value="google" checked>
+                            Google Gemini
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="image-provider" value="openai">
+                            OpenAI GPT Image
+                        </label>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="generate-images">
+                        Генерувати зображення
+                    </label>
+                    <div class="token-display">
+                        <span class="token-label">Токенів використано:</span>
+                        <span class="token-value" id="token-count">0</span>
+                    </div>
+                </div>
+            </div>
+            
             <div class="actions">
                 <input type="file" id="file-upload" accept=".txt,.json,.docx" style="display: none;">
                 <button class="btn-secondary" onclick="document.getElementById('file-upload').click()">
@@ -213,7 +301,68 @@
     
     <script>
         const API_BASE = '/pptx-generator';
-        
+        const STORAGE_KEY = 'pptx_generator_state';
+
+        // Load saved state from localStorage
+        function loadSavedState() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                console.log('Loading saved state:', saved);
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    console.log('Parsed state:', state);
+                    if (state.text) {
+                        const textarea = document.getElementById('json-input');
+                        textarea.value = state.text;
+                        console.log('Restored text, length:', state.text.length);
+                    }
+                    if (state.provider) {
+                        const providerRadio = document.querySelector(`input[name="image-provider"][value="${state.provider}"]`);
+                        if (providerRadio) {
+                            providerRadio.checked = true;
+                        }
+                    }
+                    if (state.generateImages !== undefined) {
+                        document.getElementById('generate-images').checked = state.generateImages;
+                    }
+                }
+                // Always reset token count to 0 on page load
+                document.getElementById('token-count').textContent = '0';
+            } catch (e) {
+                console.error('Failed to load saved state:', e);
+            }
+        }
+
+        // Save current state to localStorage
+        function saveState() {
+            try {
+                const text = document.getElementById('json-input').value;
+                const provider = document.querySelector('input[name="image-provider"]:checked').value;
+                const generateImages = document.getElementById('generate-images').checked;
+                const state = { text, provider, generateImages };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                console.log('Saved state, text length:', text.length);
+            } catch (e) {
+                console.error('Failed to save state:', e);
+            }
+        }
+
+        // Setup auto-save listeners for textarea (multiple events for reliability)
+        const textarea = document.getElementById('json-input');
+        textarea.addEventListener('input', saveState);
+        textarea.addEventListener('keyup', saveState);
+        textarea.addEventListener('change', saveState);
+        document.querySelectorAll('input[name="image-provider"]').forEach(radio => {
+            radio.addEventListener('change', saveState);
+        });
+        document.getElementById('generate-images').addEventListener('change', saveState);
+
+        // Also save before page unload
+        window.addEventListener('beforeunload', saveState);
+
+        // Load saved state immediately (DOM is already ready since script is at end of body)
+        loadSavedState();
+
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toast');
             toast.textContent = message;
@@ -260,23 +409,39 @@
             reader.readAsText(file);
         });
         
+        let isGenerating = false;
+
+        // Prevent closing page during generation
+        window.addEventListener('beforeunload', function(e) {
+            if (isGenerating) {
+                e.preventDefault();
+                e.returnValue = 'Генерація презентації триває. Закрити сторінку?';
+                return e.returnValue;
+            }
+        });
+
         async function generatePPTX() {
             const input = document.getElementById('json-input').value;
             const btn = document.getElementById('btn-generate');
             const resultDiv = document.getElementById('validation-result');
-            
+
             if (!input.trim()) {
                 showToast('Введіть текст або JSON', 'error');
                 return;
             }
-            
+
+            // Get selected image provider and generate images option
+            const provider = document.querySelector('input[name="image-provider"]:checked').value;
+            const generateImages = document.getElementById('generate-images').checked;
+
             // Show spinner immediately
+            isGenerating = true;
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Генерація...';
             resultDiv.style.display = 'none';
             
             try {
-                const response = await fetch(`${API_BASE}/api/generate`, {
+                const response = await fetch(`${API_BASE}/api/generate?provider=${provider}&generate_images=${generateImages}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: input
@@ -285,6 +450,18 @@
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.error || 'Помилка генерації');
+                }
+                
+                // Extract and display token usage from response header
+                const tokensHeader = response.headers.get('X-Tokens-Used');
+                if (tokensHeader) {
+                    try {
+                        const tokens = JSON.parse(tokensHeader);
+                        const totalTokens = tokens.total_tokens || 0;
+                        document.getElementById('token-count').textContent = totalTokens.toLocaleString();
+                    } catch (e) {
+                        console.log('Could not parse token usage:', e);
+                    }
                 }
                 
                 // Download the file
@@ -299,9 +476,12 @@
                 window.URL.revokeObjectURL(url);
                 
                 showToast('Презентацію створено!', 'success');
+                // Clear saved state after successful generation
+                localStorage.removeItem(STORAGE_KEY);
             } catch (e) {
                 showToast('Помилка: ' + e.message, 'error');
             } finally {
+                isGenerating = false;
                 btn.disabled = false;
                 btn.textContent = 'Створити презентацію';
             }

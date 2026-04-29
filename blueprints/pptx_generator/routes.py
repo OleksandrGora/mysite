@@ -72,6 +72,9 @@ def generate_pptx():
         }
     ]
     
+    Query parameters:
+        provider: 'google' (default) or 'openai' - image generation provider
+    
     If JSON parsing fails, LLM will be used to fix the structure.
     """
     try:
@@ -80,13 +83,33 @@ def generate_pptx():
         if not raw_data:
             return jsonify({'error': 'No data provided'}), 400
         
+        # Get image provider from query params (default: google)
+        image_provider = request.args.get('provider', 'google').lower()
+        if image_provider not in ['google', 'openai']:
+            image_provider = 'google'
+        
+        # Get generate_images flag (default: true for backward compatibility)
+        generate_images_param = request.args.get('generate_images', 'true').lower()
+        generate_images = generate_images_param in ['true', '1', 'yes']
+        
+        logger.info(f"Using image provider: {image_provider}, generate_images: {generate_images}")
+        
+        # Track token usage across all LLM calls
+        total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+        
         # Try to parse as JSON first
         try:
             data = json.loads(raw_data)
         except json.JSONDecodeError:
             # If JSON parsing fails, use LLM to fix it
             logger.info("JSON parsing failed, attempting LLM fix")
-            data = fix_json_with_llm(raw_data)
+            data, tokens = fix_json_with_llm(raw_data)
+            
+            # Add tokens from JSON fixing
+            if tokens:
+                total_tokens['input_tokens'] += tokens.get('input_tokens', 0)
+                total_tokens['output_tokens'] += tokens.get('output_tokens', 0)
+                total_tokens['total_tokens'] += tokens.get('total_tokens', 0)
             
             if data is None:
                 return jsonify({'error': 'Invalid JSON and LLM fix failed. Please provide valid JSON or clear text.'}), 400
@@ -108,21 +131,33 @@ def generate_pptx():
         images_dir = os.path.join(temp_dir, 'images')
         os.makedirs(images_dir, exist_ok=True)
         
-        # Generate images if descriptions provided
+        # Generate images if descriptions provided and generate_images is enabled
         slides_with_images = []
         for i, slide in enumerate(data):
             slide_copy = slide.copy()
             image_desc = slide.get('image_description', '')
             
-            if image_desc:
-                # Try to generate image using LLM
+            if image_desc and generate_images:
+                # Try to generate image using selected provider
                 try:
-                    image_path = generate_image_with_llm(image_desc, images_dir, i)
+                    if image_provider == 'openai':
+                        image_path, image_tokens = generate_image_with_openai(image_desc, images_dir, i)
+                    else:
+                        image_path, image_tokens = generate_image_with_llm(image_desc, images_dir, i)
+                    
                     if image_path:
                         slide_copy['image_path'] = image_path
-                        logger.info(f"Generated image for slide {i}")
+                        logger.info(f"Generated image for slide {i} using {image_provider}")
+                        
+                        # Add tokens from image generation
+                        if image_tokens:
+                            total_tokens['input_tokens'] += image_tokens.get('input_tokens', 0)
+                            total_tokens['output_tokens'] += image_tokens.get('output_tokens', 0)
+                            total_tokens['total_tokens'] += image_tokens.get('total_tokens', 0)
+                            logger.info(f"Added image generation tokens for slide {i}: {image_tokens}")
+                        
                 except Exception as e:
-                    logger.warning(f"Failed to generate image for slide {i}: {e}")
+                    logger.warning(f"Failed to generate image for slide {i} using {image_provider}: {e}")
             
             slides_with_images.append(slide_copy)
         
@@ -134,13 +169,18 @@ def generate_pptx():
         
         logger.info(f"Generated presentation: {output_path}")
         
-        # Return the file
-        return send_file(
+        # Create response with file and token usage header
+        response = send_file(
             output_path,
             as_attachment=True,
             download_name=output_filename,
             mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
         )
+        
+        # Add token usage to response headers
+        response.headers['X-Tokens-Used'] = json.dumps(total_tokens)
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error generating PPTX: {e}", exc_info=True)
@@ -155,7 +195,7 @@ def fix_json_with_llm(raw_text):
         raw_text: raw text input that may not be valid JSON
     
     Returns:
-        parsed JSON list or None if failed
+        tuple: (parsed JSON list or None, tokens_used dict or None)
     """
     try:
         from dotenv import load_dotenv
@@ -198,6 +238,18 @@ def fix_json_with_llm(raw_text):
         
         result_text = response.text.strip()
         
+        # Extract token usage from response
+        tokens_used = None
+        try:
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                tokens_used = {
+                    'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
+                    'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
+                    'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
+                }
+        except Exception as token_err:
+            logger.warning(f"Could not extract token usage: {token_err}")
+        
         # Remove markdown code blocks if present
         if result_text.startswith('```json'):
             result_text = result_text[7:]
@@ -212,20 +264,19 @@ def fix_json_with_llm(raw_text):
         
         if isinstance(data, list):
             logger.info(f"Successfully fixed JSON with LLM: {len(data)} slides")
-            return data
+            return data, tokens_used
         else:
             logger.warning("LLM returned non-array JSON")
-            return None
+            return None, tokens_used
             
     except Exception as e:
         logger.error(f"Failed to fix JSON with LLM: {e}")
-        return None
+        return None, None
 
 
 def generate_image_with_llm(description, output_dir, slide_index):
     """
-    Generate image using LLM based on description.
-    Currently uses Gemini API if available.
+    Generate image using Gemini AI based on description.
     
     Args:
         description: text description of the image
@@ -233,7 +284,7 @@ def generate_image_with_llm(description, output_dir, slide_index):
         slide_index: index of the slide for filename
     
     Returns:
-        path to generated image or None if failed
+        tuple: (path to generated image or None, tokens_used dict or None)
     """
     try:
         from dotenv import load_dotenv
@@ -242,38 +293,168 @@ def generate_image_with_llm(description, output_dir, slide_index):
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             logger.warning("GEMINI_API_KEY not set, skipping image generation")
+            return None, None
+        
+        from google import genai
+        from google.genai import types
+        import base64
+        
+        client = genai.Client(api_key=api_key)
+        
+        # Enhance the prompt for better image generation
+        enhanced_prompt = f"""Create a clean, professional illustration for a presentation slide.
+        
+Description: {description}
+
+Requirements:
+- Simple, minimalist design
+- Suitable for educational/business presentation
+- Clear visual elements
+- No text in the image
+- Professional color palette"""
+        
+        logger.info(f"Generating image for slide {slide_index}: {description[:50]}...")
+        
+        # Generate image using Gemini
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-image-preview',
+            contents=enhanced_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+                response_modalities=['Text', 'Image']
+            )
+        )
+        
+        # Extract image data from response
+        image_data = None
+        logger.info(f"Response candidates count: {len(response.candidates)}")
+        
+        if response.candidates and len(response.candidates) > 0:
+            candidate = response.candidates[0]
+            logger.info(f"Content parts count: {len(candidate.content.parts)}")
+            
+            for i, part in enumerate(candidate.content.parts):
+                logger.info(f"Part {i}: type={type(part)}, text={getattr(part, 'text', None)[:50] if hasattr(part, 'text') and part.text else 'None'}")
+                
+                if hasattr(part, 'inline_data') and part.inline_data is not None:
+                    image_data = part.inline_data.data
+                    logger.info(f"Found inline_data for slide {slide_index}")
+                    break
+                elif hasattr(part, 'inlineData') and part.inlineData is not None:
+                    image_data = part.inlineData.data
+                    logger.info(f"Found inlineData for slide {slide_index}")
+                    break
+        
+        if image_data is None:
+            logger.warning(f"No image data returned for slide {slide_index}")
             return None
         
-        # For now, we'll use a placeholder approach
-        # In production, you would integrate with an image generation API
-        # like DALL-E, Midjourney, or Gemini's image capabilities
-        
-        # Create a simple placeholder image with text
-        from PIL import Image, ImageDraw, ImageFont
-        
-        img = Image.new('RGB', (800, 600), color='white')
-        draw = ImageDraw.Draw(img)
-        
-        # Add description text
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-        except:
-            font = ImageFont.load_default()
-        
-        # Wrap text
-        text = description[:100] + "..." if len(description) > 100 else description
-        draw.text((50, 50), f"Slide {slide_index + 1}", fill='black', font=font)
-        draw.text((50, 100), text, fill='gray', font=font)
-        
-        # Save image
+        # Save the generated image
         image_path = os.path.join(output_dir, f"slide_{slide_index}.png")
-        img.save(image_path)
+        with open(image_path, 'wb') as f:
+            # Data is already base64 encoded string
+            f.write(base64.b64decode(image_data) if isinstance(image_data, str) else image_data)
         
-        return image_path
+        # Extract token usage from response
+        tokens_used = None
+        try:
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                tokens_used = {
+                    'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
+                    'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
+                    'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
+                }
+                logger.info(f"Image generation tokens: {tokens_used}")
+        except Exception as token_err:
+            logger.warning(f"Could not extract image generation token usage: {token_err}")
+        
+        logger.info(f"Image saved to {image_path}")
+        return image_path, tokens_used
         
     except Exception as e:
         logger.error(f"Image generation failed: {e}")
-        return None
+        return None, None
+
+
+def generate_image_with_openai(description, output_dir, slide_index):
+    """
+    Generate image using OpenAI GPT Image 1 Mini based on description.
+    
+    Args:
+        description: text description of the image
+        output_dir: directory to save the image
+        slide_index: index of the slide for filename
+    
+    Returns:
+        tuple: (path to generated image or None, tokens_used dict or None)
+    """
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            logger.warning("OPENAI_API_KEY not set, skipping image generation")
+            return None, None
+        
+        from openai import OpenAI
+        import base64
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Enhance the prompt for better image generation
+        enhanced_prompt = f"""Create a clean, professional illustration for a presentation slide.
+        
+Description: {description}
+
+Requirements:
+- Simple, minimalist design
+- Suitable for educational/business presentation
+- Clear visual elements
+- No text in the image
+- Professional color palette"""
+        
+        logger.info(f"Generating image with OpenAI for slide {slide_index}: {description[:50]}...")
+        
+        # Generate image using OpenAI GPT Image 1 Mini
+        response = client.images.generate(
+            model="gpt-image-1-mini",
+            prompt=enhanced_prompt,
+            n=1,
+            size="1024x1024"
+        )
+        
+        # Extract image data from response
+        if response.data and len(response.data) > 0:
+            image_data = response.data[0].b64_json
+            if image_data:
+                # Save the generated image
+                image_path = os.path.join(output_dir, f"slide_{slide_index}.png")
+                with open(image_path, 'wb') as f:
+                    f.write(base64.b64decode(image_data))
+                
+                # Extract token usage from response
+                tokens_used = None
+                try:
+                    if hasattr(response, 'usage') and response.usage:
+                        tokens_used = {
+                            'input_tokens': getattr(response.usage, 'prompt_tokens', 0),
+                            'output_tokens': getattr(response.usage, 'completion_tokens', 0),
+                            'total_tokens': getattr(response.usage, 'total_tokens', 0)
+                        }
+                        logger.info(f"OpenAI image generation tokens: {tokens_used}")
+                except Exception as token_err:
+                    logger.warning(f"Could not extract OpenAI image generation token usage: {token_err}")
+                
+                logger.info(f"OpenAI image saved to {image_path}")
+                return image_path, tokens_used
+        
+        logger.warning(f"No image data returned from OpenAI for slide {slide_index}")
+        return None, None
+        
+    except Exception as e:
+        logger.error(f"OpenAI image generation failed: {e}")
+        return None, None
 
 
 @pptx_generator_bp.route('/api/validate', methods=['POST'])

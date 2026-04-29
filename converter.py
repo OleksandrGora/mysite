@@ -29,14 +29,16 @@ REPLACEMENTS = [
 # -------------------------------------------------------
 
 def _make_credentials():
-    """Створює Credentials з даних сесії."""
+    """Storjuje Credentials z danij sesiyi."""
     t = session['token']
+    # Authlib returns token in a specific structure
     return Credentials(
         token=t.get('access_token'),
         refresh_token=t.get('refresh_token'),
         token_uri='https://oauth2.googleapis.com/token',
         client_id=os.environ['GOOGLE_CLIENT_ID'],
         client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        scopes=t.get('scope', '').split()
     )
 
 def is_token_valid():
@@ -73,6 +75,7 @@ def get_drive_service():
         token_uri='https://oauth2.googleapis.com/token',
         client_id=os.environ['GOOGLE_CLIENT_ID'],
         client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
+        scopes=t.get('scope', '').split()
     )
     if not creds.valid and creds.expired and creds.refresh_token:
         from google.auth.transport.requests import Request as GoogleRequest
@@ -325,19 +328,35 @@ def converter():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
+        # Get both text input and file
+        text_input = request.form.get('text_input', '').strip()
         f = request.files.get('file')
-        if not f:
-            return render_template('converter.html', error='Файл не вибраний')
-
-        try:
-            content = f.read().decode('utf-8')
-        except UnicodeDecodeError:
+        
+        # Validate input
+        if not text_input and not f:
+            return render_template('converter.html', error='Please enter text or select a file')
+        
+        if text_input and f and f.filename:
+            return render_template('converter.html', 
+                error='Both text and file provided. Text input will be used for conversion.',
+                warnings=[],
+                filename=f.filename)
+        
+        # Use text input if provided, otherwise use file
+        if text_input:
+            content = text_input
+            filename = 'text_input.md'
+        else:
             try:
-                f.seek(0)
-                content = f.read().decode('cp1251')
-            except Exception as e:
-                return render_template('converter.html',
-                    error=f'Не вдалося прочитати файл: {e}')
+                content = f.read().decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    f.seek(0)
+                    content = f.read().decode('cp1251')
+                except Exception as e:
+                    return render_template('converter.html',
+                        error=f'Failed to read file: {e}')
+            filename = f.filename
 
         content = preprocess(content)
 
@@ -355,14 +374,14 @@ def converter():
                 return render_template('converter.html',
                     error=error_text,
                     warnings=warnings,
-                    filename=f.filename)
+                    filename=filename)
 
             postprocess_docx(dst)
 
             # Якщо користувач хоче просто завантажити DOCX
             if request.form.get('action') == 'download':
                 from io import BytesIO
-                output_filename = f.filename.rsplit('.', 1)[0] + '.docx'
+                output_filename = filename.rsplit('.', 1)[0] + '.docx'
                 with open(dst, 'rb') as docx_file:
                     file_data = docx_file.read()
                 return send_file(
@@ -374,10 +393,13 @@ def converter():
 
             # Інакше завантажуємо на Google Drive
             try:
+                logger.info("Starting Google Drive upload...")
                 drive = get_drive_service()
+                logger.info("Drive service created successfully")
                 folder_id = get_or_create_folder(drive, 'Openclaw')
+                logger.info("Folder created/retrieved: %s", folder_id)
                 file_meta = {
-                    'name': f.filename.rsplit('.', 1)[0],
+                    'name': filename.rsplit('.', 1)[0],
                     'mimeType': 'application/vnd.google-apps.document',
                     'parents': [folder_id],
                 }
@@ -390,21 +412,27 @@ def converter():
                     media_body=media,
                     fields='id,webViewLink'
                 ).execute()
+                logger.info("File uploaded successfully: %s", uploaded.get('webViewLink'))
 
             except Exception as e:
+                error_msg = str(e)
                 logger.error("Google Drive upload failed: %s", traceback.format_exc())
+                logger.error("Error type: %s", type(e).__name__)
+                logger.error("Error details: %s", error_msg)
+                
                 # Якщо токен протермінований — перенаправляємо на логін
-                if str(e) == "TOKEN_EXPIRED" or "invalid_grant" in str(e):
+                if str(e) == "TOKEN_EXPIRED" or "invalid_grant" in str(e) or "unauthorized_client" in str(e):
+                    logger.warning("Token expired or unauthorized, clearing session and redirecting to login")
                     session.clear()
                     return redirect(url_for('login'))
                 return render_template('converter.html',
-                    error=f'Файл конвертовано, але помилка завантаження на Drive: {e}',
+                    error=f'Файл конвертовано, але помилка завантаження на Drive: {error_msg}',
                     warnings=warnings,
-                    filename=f.filename)
+                    filename=filename)
 
             return render_template('converter.html',
                 link=uploaded.get('webViewLink'),
                 warnings=warnings,
-                filename=f.filename)
+                filename=filename)
 
     return render_template('converter.html')

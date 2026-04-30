@@ -62,7 +62,7 @@ GEMINI_IMAGE_MAX_WORKERS = 3
 # "gemini-2.5-pro"    — найякісніша
 # "gemini-2.5-flash"  — швидша
 # "gemini-2.0-flash"  — стабільна, без thinking
-GEMINI_TEXT_MODEL = "gemini-2.5-pro"
+GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
 
 # Thinking budget для текстової моделі
 # 0 — вимкнено, -1 — авто, 1024+ — обмежений
@@ -370,7 +370,7 @@ def fix_json_with_llm(raw_text, provider='google'):
 
             response = client.chat.completions.create(
                 model=OPENAI_TEXT_MODEL,
-                temperature=OPENAI_TEXT_TEMPERATURE,
+                # temperature=OPENAI_TEXT_TEMPERATURE,
                 messages=[{"role": "user", "content": prompt}]
             )
 
@@ -403,9 +403,9 @@ def fix_json_with_llm(raw_text, provider='google'):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=GEMINI_TEXT_TEMPERATURE,
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=GEMINI_TEXT_THINKING_BUDGET
-                    )
+                    # thinking_config=types.ThinkingConfig(
+                    #     thinking_budget=GEMINI_TEXT_THINKING_BUDGET
+                    # )
                 )
             )
 
@@ -445,7 +445,8 @@ def fix_json_with_llm(raw_text, provider='google'):
             return None, tokens_used
 
     except Exception as e:
-        logger.error(f"Failed to fix JSON with LLM ({provider}): {e}", exc_info=True)
+        import traceback
+        logger.error(f"Failed to fix JSON with LLM ({provider}): {type(e).__name__}: {e}\n{traceback.format_exc()}")
         return None, None
 
 
@@ -609,7 +610,7 @@ Requirements:
         return None, None
         
     except Exception as e:
-        logger.error(f"OpenAI image generation failed: {e}")
+        logger.error(f"OpenAI image generation failed: {e}", exc_info=True)
         return None, None
 
 

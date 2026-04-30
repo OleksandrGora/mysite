@@ -147,6 +147,14 @@ def create_presentation(filename, slides_data, images_dir=None):
     city_para.font.color.rgb = selected_title_color
     city_para.alignment = 1  # Center
     
+    # Choose design type once for the entire presentation (except title slide)
+    design_type = random.choice(['rectangle', 'circle'])
+    rectangle_layout = None
+    
+    # If rectangle design, choose layout once for consistency
+    if design_type == 'rectangle':
+        rectangle_layout = random.choice(rectangle_layout_options)
+    
     # Content slides
     slide_count = 0
     for slide_data in slides_data:
@@ -155,20 +163,17 @@ def create_presentation(filename, slides_data, images_dir=None):
         image_description = slide_data.get('image_description', '')
         image_path = slide_data.get('image_path', '')
         
-        # Використовуємо порожній макет (6) для повного контролю
+        # Using empty layout (6) for full control
         slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(slide_layout)
         slide_count += 1
         
-        # Випадково вибираємо тип дизайну: прямокутники або кола
-        design_type = random.choice(['rectangle', 'circle'])
-        
+        # Apply background design based on chosen type
         if design_type == 'rectangle':
-            # Прямокутники: 3 опції - повне заповнення, половина зліва, половина справа
-            rectangle_layout = random.choice(rectangle_layout_options)
+            # Rectangles: same layout for all slides
             _add_background_rectangles(slide, prs.slide_width, prs.slide_height, color1, color2, rectangle_layout)
         else:
-            # Кола: 4 опції - велике коло у кутку
+            # Circles: random layout for each slide
             circle_layout = random.choice(circle_layout_options)
             _add_background_circles(slide, prs.slide_width, prs.slide_height, color1, color2, circle_layout)
         

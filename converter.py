@@ -93,18 +93,26 @@ def get_drive_service():
 # -------------------------------------------------------
 
 def get_or_create_folder(drive, folder_name):
-    results = drive.files().list(
-        q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-        fields='files(id)'
-    ).execute()
-    files = results.get('files', [])
-    if files:
-        return files[0]['id']
-    folder = drive.files().create(
-        body={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'},
-        fields='id'
-    ).execute()
-    return folder['id']
+    try:
+        results = drive.files().list(
+            q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            fields='files(id)'
+        ).execute()
+        files = results.get('files', [])
+        if files:
+            return files[0]['id']
+        folder = drive.files().create(
+            body={'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder'},
+            fields='id'
+        ).execute()
+        return folder['id']
+    except Exception as e:
+        # Check for token expiration errors
+        error_str = str(e)
+        if "invalid_grant" in error_str or "unauthorized_client" in error_str or "TOKEN_EXPIRED" in error_str:
+            logger.warning("Token expired in get_or_create_folder, raising TOKEN_EXPIRED")
+            raise RuntimeError("TOKEN_EXPIRED")
+        raise
 
 # -------------------------------------------------------
 # Конвертація

@@ -60,6 +60,14 @@
         .btn-success:hover { background: #2e7d32; }
         .btn-success:disabled { background: #ccc; cursor: not-allowed; }
         
+        .status-display {
+            padding: 8px 12px;
+            font-size: 14px;
+            color: #666;
+            min-width: 200px;
+            text-align: center;
+        }
+        
         .container {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -286,11 +294,14 @@
             <div class="actions">
                 <input type="file" id="file-upload" accept=".txt,.json,.docx" style="display: none;">
                 <button class="btn-secondary" onclick="document.getElementById('file-upload').click()">
-                    Завантажити файл (.txt, .json, .docx)
+                    <span>+</span> Завантажити файл (.txt, .json, .docx)
                 </button>
                 <button class="btn-primary" id="btn-generate" onclick="generatePPTX()">
-                    Створити презентацію
+                    <span>+</span> Створити презентацію
                 </button>
+                <div class="status-display" id="status-display">
+                    <span id="status-text">Ready</span>
+                </div>
             </div>
             
             <div id="validation-result" class="validation-result"></div>
@@ -424,6 +435,8 @@
             const input = document.getElementById('json-input').value;
             const btn = document.getElementById('btn-generate');
             const resultDiv = document.getElementById('validation-result');
+            const statusDisplay = document.getElementById('status-display');
+            const statusText = document.getElementById('status-text');
 
             if (!input.trim()) {
                 showToast('Введіть текст або JSON', 'error');
@@ -434,11 +447,40 @@
             const provider = document.querySelector('input[name="image-provider"]:checked').value;
             const generateImages = document.getElementById('generate-images').checked;
 
-            // Show spinner immediately
+            // Show spinner immediately and start status polling
             isGenerating = true;
             btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Генерація...';
+            btn.innerHTML = '<span class="loading"></span> Generating...';
             resultDiv.style.display = 'none';
+            statusText.textContent = 'Starting...';
+            
+            // Start status polling
+            const statusInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/status`);
+                    if (response.ok) {
+                        const status = await response.json();
+                        statusText.textContent = status.message || 'Processing...';
+                        
+                        // Update status display based on status
+                        if (status.status === 'completed') {
+                            clearInterval(statusInterval);
+                            // Reset button and state immediately when completed
+                            isGenerating = false;
+                            btn.disabled = false;
+                            btn.textContent = 'Create Presentation';
+                        } else if (status.status === 'error') {
+                            clearInterval(statusInterval);
+                            // Reset button and state immediately when error
+                            isGenerating = false;
+                            btn.disabled = false;
+                            btn.textContent = 'Create Presentation';
+                        }
+                    }
+                } catch (e) {
+                    console.log('Status check failed:', e);
+                }
+            }, 1000); // Poll every second
             
             try {
                 const response = await fetch(`${API_BASE}/api/generate?provider=${provider}&generate_images=${generateImages}`, {
@@ -481,9 +523,16 @@
             } catch (e) {
                 showToast('Помилка: ' + e.message, 'error');
             } finally {
-                isGenerating = false;
-                btn.disabled = false;
-                btn.textContent = 'Створити презентацію';
+                // Only reset if not already reset by status polling
+                if (isGenerating) {
+                    isGenerating = false;
+                    btn.disabled = false;
+                    btn.textContent = 'Create Presentation';
+                }
+                
+                // Clear status polling and reset status display
+                clearInterval(statusInterval);
+                statusText.textContent = 'Ready';
             }
         }
     </script>

@@ -170,26 +170,23 @@ def create_presentation(filename, slides_data, images_dir=None):
         
         # Apply background design based on chosen type
         if design_type == 'rectangle':
-            # Rectangles: same layout for all slides
             _add_background_rectangles(slide, prs.slide_width, prs.slide_height, color1, color2, rectangle_layout)
         else:
-            # Circles: random layout for each slide
             circle_layout = random.choice(circle_layout_options)
             _add_background_circles(slide, prs.slide_width, prs.slide_height, color1, color2, circle_layout)
         
-        # Додаємо заголовок - завжди жирний, контрастний колір
-        # Заголовок займає верхню частину до 1.3 дюймів
+        # Додаємо заголовок
         if title_text:
             title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
             title_frame = title_box.text_frame
             title_frame.text = title_text
             title_para = title_frame.paragraphs[0]
             title_para.font.size = Pt(32)
-            title_para.font.bold = True  # Завжди жирний
+            title_para.font.bold = True
             title_para.font.color.rgb = selected_title_color
             title_para.alignment = 1  # Center
         
-        # Перевіряємо чи є зображення для чергування ліво/право
+        # Перевіряємо чи є реальне зображення
         has_image = False
         actual_image_path = None
         if image_path and os.path.exists(image_path):
@@ -200,37 +197,51 @@ def create_presentation(filename, slides_data, images_dir=None):
             if os.path.exists(potential_image):
                 has_image = True
                 actual_image_path = potential_image
-        
-        # Чергування зображень: непарні слайди - право, парні - ліво
-        # slide_count починається з 1
+
+        # Чи є image_description (потрібне місце для зображення)
+        needs_image_space = bool(image_description)
+
+        # Чергування: непарні - справа, парні - зліва
         image_on_right = (slide_count % 2 == 1)
 
-        # Розраховуємо розмір зображення: 30% від ширини слайду
         slide_width = prs.slide_width
         slide_height = prs.slide_height
-        img_width = slide_width * 0.5  # 30% ширини слайду
-        # Або 30% від висоти - використовуємо менший розмір для оптимального вміщення
-        img_height_limit = slide_height * 0.5  # 35% висоти для комфорту
 
-        # Визначаємо позицію зображення та тексту
-        # Заголовок займає до 1.3 дюймів (~1.18"), зображення починається після нього
-        img_y = Inches(1.3)  # Під заголовком
-        text_y = Inches(1.3)  # Текст на тому ж рівні, що й зображення
+        # Розміри зон — чітко 50/50 з відступами
+        MARGIN = Inches(0.4)
+        CONTENT_TOP = Inches(1.3)       # під заголовком
+        CONTENT_HEIGHT = Inches(5.0)
+        HALF_W = slide_width // 2       # половина слайду в EMU
 
-        # Додаємо текст тіла з урахуванням чергування
+        # Зона зображення: 50% ширини мінус відступи
+        img_zone_w = HALF_W - int(MARGIN * 1.5)
+        img_zone_h = CONTENT_HEIGHT
+
+        # Зона тексту: та сама ширина
+        text_zone_w = HALF_W - int(MARGIN * 1.5)
+
+        if image_on_right:
+            img_x = HALF_W + int(MARGIN * 0.5)
+            text_x = int(MARGIN)
+        else:
+            img_x = int(MARGIN)
+            text_x = HALF_W + int(MARGIN * 0.5)
+
+        # Визначаємо позицію та ширину тексту
+        if has_image or needs_image_space:
+            # Текст займає ліву або праву половину
+            final_text_x = text_x
+            final_text_w = text_zone_w
+        else:
+            # Немає зображення — текст на всю ширину
+            final_text_x = int(MARGIN)
+            final_text_w = slide_width - int(MARGIN * 2)
+
+        # Додаємо текст тіла
         if body_text:
-            if has_image:
-                text_width = Inches(6.3)  # Ширина тексту коли є зображення
-                if image_on_right:
-                    # Зображення справа, текст зліва
-                    body_box = slide.shapes.add_textbox(Inches(0.5), text_y, text_width, Inches(4.5))
-                else:
-                    # Зображення зліва, текст справа
-                    body_box = slide.shapes.add_textbox(Inches(3.2), text_y, text_width, Inches(4.5))
-            else:
-                # Якщо немає зображення, текст на всю ширину
-                body_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.8), Inches(9), Inches(4.5))
-
+            body_box = slide.shapes.add_textbox(
+                final_text_x, CONTENT_TOP, final_text_w, CONTENT_HEIGHT
+            )
             body_frame = body_box.text_frame
             body_frame.word_wrap = True
             body_frame.text = body_text
@@ -238,51 +249,87 @@ def create_presentation(filename, slides_data, images_dir=None):
             body_para.font.size = Pt(18)
             body_para.font.color.rgb = selected_title_color
 
-        # Додавання зображення з чергуванням ліво/право та розміром 30% ширини
+        # Додавання реального зображення
         if actual_image_path:
             from PIL import Image as PILImage
-            # Визначаємо пропорції зображення
             with PILImage.open(actual_image_path) as img:
                 img_w, img_h = img.size
                 aspect_ratio = img_h / img_w
 
-            # Ширина 30% від ширини слайду
-            pic_width = int(slide_width * 0.3)
+            # Вписуємо зображення в зону img_zone_w x img_zone_h
+            pic_width = img_zone_w
             pic_height = int(pic_width * aspect_ratio)
-
-            # Якщо висота занадто велика, обмежуємо 35% висоти слайду
-            max_height = int(slide_height * 0.5)
-            if pic_height > max_height:
-                pic_height = max_height
+            if pic_height > img_zone_h:
+                pic_height = img_zone_h
                 pic_width = int(pic_height / aspect_ratio)
 
-            if image_on_right:
-                # Непарні слайди - зображення справа
-                img_x = slide_width - pic_width - Inches(0.5)
-                slide.shapes.add_picture(actual_image_path, img_x, img_y, width=pic_width, height=pic_height)
-            else:
-                # Парні слайди - зображення зліва
-                slide.shapes.add_picture(actual_image_path, Inches(0.5), img_y, width=pic_width, height=pic_height)
-        
+            # Центруємо вертикально в зоні
+            img_y = CONTENT_TOP + (img_zone_h - pic_height) // 2
+
+            slide.shapes.add_picture(
+                actual_image_path, img_x, img_y,
+                width=pic_width, height=pic_height
+            )
+
+        # Заглушка коли є image_description але немає реального зображення
+        elif needs_image_space:
+            _add_image_placeholder(
+                slide, img_x, CONTENT_TOP, img_zone_w, img_zone_h, image_description
+            )
+
     prs.save(filename)
     return filename
+
+
+def _add_image_placeholder(slide, ph_x, ph_y, ph_width, ph_height, label_text=''):
+    """
+    Додає сірий прямокутник-заглушку на місці майбутнього зображення.
+    """
+
+    # Прямокутник-заглушка
+    ph_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        ph_x, ph_y,
+        ph_width, ph_height
+    )
+    ph_fill = ph_shape.fill
+    ph_fill.solid()
+    ph_fill.fore_color.rgb = RGBColor(220, 220, 220)  # Світло-сірий
+
+    # М'який бордер
+    ph_shape.line.color.rgb = RGBColor(180, 180, 180)
+    ph_shape.line.width = Pt(1)
+
+    # Підпис всередині заглушки
+    from pptx.util import Pt as PtUtil
+    tf = ph_shape.text_frame
+    tf.word_wrap = True
+
+    # Іконка + текст
+    display_text = f"🖼 {label_text}" if label_text else "🖼 Зображення"
+    # Обрізаємо якщо дуже довгий
+    if len(display_text) > 80:
+        display_text = display_text[:77] + '...'
+
+    p = tf.paragraphs[0]
+    p.text = display_text
+    p.font.size = Pt(11)
+    p.font.color.rgb = RGBColor(120, 120, 120)
+    p.font.italic = True
+    p.alignment = 1  # Center
 
 
 def _lock_shape(shape):
     """Заблокувати фігуру від редагування та переміщення через XML."""
     from pptx.oxml.ns import qn
 
-    # Отримуємо XML елемент фігури
     sp = shape._element
 
-    # Створюємо або отримуємо spLocks елемент
-    # Додаємо блокування через XML атрибути
     sp_locks = sp.find(qn('a:spLocks'))
     if sp_locks is None:
         from lxml import etree
         sp_locks = etree.SubElement(sp, qn('a:spLocks'))
 
-    # Встановлюємо атрибути блокування
     sp_locks.set('noAdjustHandles', '1')
     sp_locks.set('noChangeArrowheads', '1')
     sp_locks.set('noChangeShapeType', '1')
@@ -304,7 +351,6 @@ def _add_background_rectangles(slide, slide_width, slide_height, color1, color2,
     - right_half: fill right half of slide
     """
     if layout == 'full':
-        # Full slide rectangle
         rect = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
             0, 0,
@@ -313,18 +359,15 @@ def _add_background_rectangles(slide, slide_width, slide_height, color1, color2,
         rect.z_order = 0
         rect.line.fill.background()
         
-        # Add gradient fill
         fill = rect.fill
         fill.gradient()
         fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
         fill.gradient_stops[0].color.rgb = color1
         fill.gradient_stops[1].color.rgb = color2
         
-        # Lock shape
         _lock_shape(rect)
         
     elif layout == 'left_half':
-        # Left half rectangle
         rect = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
             0, 0,
@@ -333,18 +376,15 @@ def _add_background_rectangles(slide, slide_width, slide_height, color1, color2,
         rect.z_order = 0
         rect.line.fill.background()
         
-        # Add gradient fill
         fill = rect.fill
         fill.gradient()
         fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
         fill.gradient_stops[0].color.rgb = color1
         fill.gradient_stops[1].color.rgb = color2
         
-        # Lock shape
         _lock_shape(rect)
         
     elif layout == 'right_half':
-        # Right half rectangle
         rect = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
             slide_width / 2, 0,
@@ -353,39 +393,19 @@ def _add_background_rectangles(slide, slide_width, slide_height, color1, color2,
         rect.z_order = 0
         rect.line.fill.background()
         
-        # Add gradient fill
         fill = rect.fill
         fill.gradient()
         fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
         fill.gradient_stops[0].color.rgb = color1
         fill.gradient_stops[1].color.rgb = color2
         
-        # Lock shape
         _lock_shape(rect)
 
 
 def _add_background_circles(slide, slide_width, slide_height, color1, color2, layout):
     """
     Add two circles for slide background according to selected layout.
-    Circles are clipped to slide boundaries (appear as sectors).
-
-    Layout options (4 corners):
-    - corner_top_left: large circle in top-left corner
-    - corner_top_right: large circle in top-right corner  
-    - corner_bottom_left: large circle in bottom-left corner
-    - corner_bottom_right: large circle in bottom-right corner
-
-    First circle:
-    - Center at selected corner
-    - Radius = half of slide height
-    - Clipped to visible part (sector) inside slide
-
-    Second circle:
-    - Center on diagonal from opposite corner
-    - At 1/4 distance from opposite corner
-    - Diameter = 20% of slide width
     """
-    # Corner positions for the first circle
     corner_positions = {
         'corner_top_left': (0, 0),
         'corner_top_right': (slide_width, 0),
@@ -393,41 +413,31 @@ def _add_background_circles(slide, slide_width, slide_height, color1, color2, la
         'corner_bottom_right': (slide_width, slide_height),
     }
 
-    # Get corner coordinates for first circle
     corner = corner_positions.get(layout, (0, 0))
     c1_center_x, c1_center_y = corner
 
-    # First circle parameters
     c1_radius = slide_height / 2
     c1_diameter = c1_radius * 2
 
-    # Diagonal coefficients for calculating opposite point
     diagonal_map = {
-        (0, 0): (slide_width, slide_height),  # top-left -> bottom-right
-        (0, slide_height): (slide_width, 0),  # bottom-left -> top-right
-        (slide_width, 0): (0, slide_height),  # top-right -> bottom-left
-        (slide_width, slide_height): (0, 0),  # bottom-right -> top-left
+        (0, 0): (slide_width, slide_height),
+        (0, slide_height): (slide_width, 0),
+        (slide_width, 0): (0, slide_height),
+        (slide_width, slide_height): (0, 0),
     }
 
-    # Opposite corner
     opposite = diagonal_map.get((c1_center_x, c1_center_y), (slide_width, slide_height))
     opp_x, opp_y = opposite
 
-    # Diagonal from opposite corner through first circle center
     c2_center_x = opp_x - 0.25 * (opp_x - c1_center_x)
     c2_center_y = opp_y - 0.25 * (opp_y - c1_center_y)
 
-    # Second circle diameter = 20% of slide width
     c2_diameter = slide_width * 0.2
     c2_radius = c2_diameter / 2
 
-    # Add first circle (large circle at corner)
-    # Circle center at corner, radius = half slide height
     c1_left = c1_center_x - c1_radius
     c1_top = c1_center_y - c1_radius
 
-    # Create full circle (it may extend beyond slide boundaries)
-    # PowerPoint automatically shows only visible part (sector)
     circle1 = slide.shapes.add_shape(
         MSO_SHAPE.OVAL,
         c1_left, c1_top,
@@ -436,17 +446,14 @@ def _add_background_circles(slide, slide_width, slide_height, color1, color2, la
     circle1.z_order = 0
     circle1.line.fill.background()
 
-    # Add gradient fill
     fill1 = circle1.fill
     fill1.gradient()
     fill1.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
     fill1.gradient_stops[0].color.rgb = color1
     fill1.gradient_stops[1].color.rgb = color2
 
-    # Lock first circle
     _lock_shape(circle1)
 
-    # Add second circle (smaller, on diagonal)
     c2_left = c2_center_x - c2_radius
     c2_top = c2_center_y - c2_radius
 
@@ -455,15 +462,13 @@ def _add_background_circles(slide, slide_width, slide_height, color1, color2, la
         c2_left, c2_top,
         c2_diameter, c2_diameter
     )
-    circle2.z_order = 1  # On top of first circle
+    circle2.z_order = 1
     circle2.line.fill.background()
 
-    # Add gradient fill
     fill2 = circle2.fill
     fill2.gradient()
     fill2.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
     fill2.gradient_stops[0].color.rgb = color1
     fill2.gradient_stops[1].color.rgb = color2
 
-    # Lock second circle
     _lock_shape(circle2)

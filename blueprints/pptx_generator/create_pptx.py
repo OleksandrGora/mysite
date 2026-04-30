@@ -246,7 +246,7 @@ def create_presentation(filename, slides_data, images_dir=None):
             body_frame.word_wrap = True
             body_frame.text = body_text
             body_para = body_frame.paragraphs[0]
-            body_para.font.size = Pt(18)
+            body_para.font.size = Pt(25)
             body_para.font.color.rgb = selected_title_color
 
         # Додавання реального зображення

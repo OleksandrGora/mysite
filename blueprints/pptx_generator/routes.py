@@ -3,6 +3,7 @@ import json
 import uuid
 import tempfile
 import shutil
+import threading
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for, Response, stream_with_context
 from loguru import logger
@@ -14,27 +15,60 @@ from .create_pptx import create_presentation
 # Налаштування генерації зображень OpenAI
 # ---------------------------------------------------------------------------
 
-# Модель
 # gpt-image-1-mini   — швидка, дешева (за замовчуванням)
 # gpt-image-1        — якісніша, повільніша, дорожча
 # gpt-image-1.5      — найновіша, краще слідує інструкціям
 OPENAI_IMAGE_MODEL = "gpt-image-1-mini"
 
-# Якість
-# "low"      — найшвидша, менше токенів
-# "medium"   — баланс (не у всіх моделях)
-# "high"     — найкраща якість, найповільніша
-OPENAI_IMAGE_QUALITY = "low"
+# "low" / "medium" / "high"
+OPENAI_IMAGE_QUALITY = "medium"
 
-# Розмір
-# "1024x1024"  — квадрат (за замовчуванням)
-# "1536x1024"  — landscape 3:2
-# "1024x1536"  — portrait 2:3
+# "1024x1024" / "1536x1024" / "1024x1536"
 OPENAI_IMAGE_SIZE = "1024x1024"
 
-# Максимальна кількість паралельних запитів
-# Більше = швидше, але можна впертися в rate limit
 OPENAI_IMAGE_MAX_WORKERS = 5
+
+# ---------------------------------------------------------------------------
+# Налаштування генерації тексту OpenAI
+# ---------------------------------------------------------------------------
+
+# gpt-4o-mini  — швидка, дешева
+# gpt-4o       — якісніша
+OPENAI_TEXT_MODEL = "gpt-5-nano"
+
+OPENAI_TEXT_TEMPERATURE = 0.3
+
+# ---------------------------------------------------------------------------
+# Налаштування генерації зображень Gemini
+# ---------------------------------------------------------------------------
+
+# "gemini-3.1-flash-image-preview"              — найновіша, thinking mode
+# "gemini-2.5-flash-image-preview"              — швидша, без thinking
+# "gemini-2.0-flash-preview-image-generation"   — стара стабільна
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
+
+# Thinking budget (тільки для моделей з thinking)
+# 0 — вимкнено, -1 — авто, 1024 — обмежений
+GEMINI_IMAGE_THINKING_BUDGET = 0
+
+GEMINI_IMAGE_TEMPERATURE = 0.7
+
+GEMINI_IMAGE_MAX_WORKERS = 3
+
+# ---------------------------------------------------------------------------
+# Налаштування генерації тексту Gemini
+# ---------------------------------------------------------------------------
+
+# "gemini-2.5-pro"    — найякісніша
+# "gemini-2.5-flash"  — швидша
+# "gemini-2.0-flash"  — стабільна, без thinking
+GEMINI_TEXT_MODEL = "gemini-2.5-pro"
+
+# Thinking budget для текстової моделі
+# 0 — вимкнено, -1 — авто, 1024+ — обмежений
+GEMINI_TEXT_THINKING_BUDGET = 0
+
+GEMINI_TEXT_TEMPERATURE = 0.3
 
 # ---------------------------------------------------------------------------
 
@@ -131,7 +165,7 @@ def generate_pptx():
                 data = json.loads(raw_data)
             except json.JSONDecodeError:
                 yield _sse_event('status', {'step': 'llm_fix', 'message': 'JSON некоректний, виправляю через LLM...'})
-                data, tokens = fix_json_with_llm(raw_data)
+                data, tokens = fix_json_with_llm(raw_data, provider=image_provider)
 
                 if tokens:
                     total_tokens['input_tokens'] += tokens.get('input_tokens', 0)
@@ -289,30 +323,18 @@ def generate_pptx():
     )
 
 
-def fix_json_with_llm(raw_text):
+def fix_json_with_llm(raw_text, provider='google'):
     """
     Use LLM to fix and format JSON structure for slides.
-    
+
     Args:
         raw_text: raw text input that may not be valid JSON
-    
+        provider: 'google' or 'openai'
+
     Returns:
         tuple: (parsed JSON list or None, tokens_used dict or None)
     """
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            logger.warning("GEMINI_API_KEY not set, cannot fix JSON")
-            return None, None
-        
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=api_key)
-        
-        prompt = f"""Ти — експерт з форматування даних для PowerPoint презентацій.
+    prompt = f"""Ти — експерт з форматування даних для PowerPoint презентацій.
 
 Перетвори наступний текст на валідний JSON масив об'єктів для слайдів.
 
@@ -332,86 +354,102 @@ def fix_json_with_llm(raw_text):
 {raw_text}
 
 Поверни JSON:"""
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        if provider == 'openai':
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.warning("OPENAI_API_KEY not set, cannot fix JSON")
+                return None, None
+
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+
+            response = client.chat.completions.create(
+                model=OPENAI_TEXT_MODEL,
+                temperature=OPENAI_TEXT_TEMPERATURE,
+                messages=[{"role": "user", "content": prompt}]
             )
-        )
-        
-        result_text = response.text.strip()
-        logger.debug(f"LLM raw response (first 200): {result_text[:200]}")
-        
-        # Extract token usage from response
-        tokens_used = None
-        try:
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                tokens_used = {
-                    'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
-                    'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
-                    'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
-                }
-        except Exception as token_err:
-            logger.warning(f"Could not extract token usage: {token_err}")
-        
-        # Extract JSON array robustly — find first '[' ... last ']'
+
+            result_text = response.choices[0].message.content.strip()
+            logger.debug(f"OpenAI LLM raw response (first 200): {result_text[:200]}")
+
+            tokens_used = None
+            try:
+                if response.usage:
+                    tokens_used = {
+                        'input_tokens': response.usage.prompt_tokens,
+                        'output_tokens': response.usage.completion_tokens,
+                        'total_tokens': response.usage.total_tokens
+                    }
+            except Exception as token_err:
+                logger.warning(f"Could not extract OpenAI token usage: {token_err}")
+
+        else:  # google
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                logger.warning("GEMINI_API_KEY not set, cannot fix JSON")
+                return None, None
+
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=api_key)
+
+            response = client.models.generate_content(
+                model=GEMINI_TEXT_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=GEMINI_TEXT_TEMPERATURE,
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=GEMINI_TEXT_THINKING_BUDGET
+                    )
+                )
+            )
+
+            result_text = response.text.strip()
+            logger.debug(f"Gemini LLM raw response (first 200): {result_text[:200]}")
+
+            tokens_used = None
+            try:
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    tokens_used = {
+                        'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
+                        'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
+                        'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
+                    }
+            except Exception as token_err:
+                logger.warning(f"Could not extract Gemini token usage: {token_err}")
+
+        # Extract JSON array — find first '[' ... last ']'
         start = result_text.find('[')
         end = result_text.rfind(']')
         if start != -1 and end != -1 and end > start:
             result_text = result_text[start:end + 1]
         else:
-            # Fallback: strip markdown fences
             if '```json' in result_text:
                 result_text = result_text.split('```json', 1)[1]
             if '```' in result_text:
                 result_text = result_text.rsplit('```', 1)[0]
             result_text = result_text.strip()
-        
-        # Parse the JSON
+
         data = json.loads(result_text)
-        
+
         if isinstance(data, list):
-            logger.info(f"Successfully fixed JSON with LLM: {len(data)} slides")
+            logger.info(f"Successfully fixed JSON with LLM ({provider}): {len(data)} slides")
             return data, tokens_used
         else:
             logger.warning("LLM returned non-array JSON")
             return None, tokens_used
-            
+
     except Exception as e:
-        logger.error(f"Failed to fix JSON with LLM: {e}")
+        logger.error(f"Failed to fix JSON with LLM ({provider}): {e}", exc_info=True)
         return None, None
 
 
-# ---------------------------------------------------------------------------
-# Налаштування генерації зображень Gemini
-# ---------------------------------------------------------------------------
-
-# Модель
-# "gemini-3.1-flash-image-preview"  — найновіша, thinking mode (повільніша)
-# "gemini-2.5-flash-image-preview"  — швидша, без thinking за замовчуванням
-# "gemini-2.0-flash-preview-image-generation" — стара стабільна
-GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
-
-# Thinking budget (тільки для моделей що підтримують thinking)
-# 0     — thinking вимкнено, найшвидше
-# -1    — авто (модель сама вирішує, може бути повільно)
-# 1024  — обмежений thinking
-GEMINI_IMAGE_THINKING_BUDGET = 0
-
-# Температура (креативність)
-# 0.0 — детерміновано, строго за промптом
-# 0.7 — баланс (за замовчуванням)
-# 1.0 — максимальна варіативність
-GEMINI_IMAGE_TEMPERATURE = 0.7
-
-# Максимальна кількість паралельних запитів
-# Gemini free tier має жорсткі RPM ліміти — краще не більше 3
-GEMINI_IMAGE_MAX_WORKERS = 3
-
-# ---------------------------------------------------------------------------
+def generate_image_with_llm(description, output_dir, slide_index):
     """
     Generate image using Gemini AI based on description.
     """
@@ -541,8 +579,8 @@ Requirements:
             prompt=enhanced_prompt,
             n=1,
             size=OPENAI_IMAGE_SIZE,
-            quality=OPENAI_IMAGE_QUALITY,
-            response_format="b64_json"
+            quality=OPENAI_IMAGE_QUALITY
+            # response_format="b64_json"
         )
         
         if response.data and len(response.data) > 0:
@@ -589,7 +627,7 @@ def validate_json():
             data = json.loads(raw_data)
         except json.JSONDecodeError:
             logger.info("JSON parsing failed in validate, attempting LLM fix")
-            data, _ = fix_json_with_llm(raw_data)
+            data, _ = fix_json_with_llm(raw_data, provider='google')
             
             if data is None:
                 return jsonify({

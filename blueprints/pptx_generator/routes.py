@@ -202,7 +202,8 @@ def generate_pptx():
                         else:
                             return idx, *generate_image_with_llm(desc, images_dir, idx)
 
-                    with ThreadPoolExecutor(max_workers=OPENAI_IMAGE_MAX_WORKERS) as executor:
+                    max_workers = OPENAI_IMAGE_MAX_WORKERS if image_provider == 'openai' else GEMINI_IMAGE_MAX_WORKERS
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         futures = {
                             executor.submit(_generate_one, i, desc): i
                             for i, desc in image_tasks.items()
@@ -384,7 +385,33 @@ def fix_json_with_llm(raw_text):
         return None, None
 
 
-def generate_image_with_llm(description, output_dir, slide_index):
+# ---------------------------------------------------------------------------
+# Налаштування генерації зображень Gemini
+# ---------------------------------------------------------------------------
+
+# Модель
+# "gemini-3.1-flash-image-preview"  — найновіша, thinking mode (повільніша)
+# "gemini-2.5-flash-image-preview"  — швидша, без thinking за замовчуванням
+# "gemini-2.0-flash-preview-image-generation" — стара стабільна
+GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
+
+# Thinking budget (тільки для моделей що підтримують thinking)
+# 0     — thinking вимкнено, найшвидше
+# -1    — авто (модель сама вирішує, може бути повільно)
+# 1024  — обмежений thinking
+GEMINI_IMAGE_THINKING_BUDGET = 0
+
+# Температура (креативність)
+# 0.0 — детерміновано, строго за промптом
+# 0.7 — баланс (за замовчуванням)
+# 1.0 — максимальна варіативність
+GEMINI_IMAGE_TEMPERATURE = 0.7
+
+# Максимальна кількість паралельних запитів
+# Gemini free tier має жорсткі RPM ліміти — краще не більше 3
+GEMINI_IMAGE_MAX_WORKERS = 3
+
+# ---------------------------------------------------------------------------
     """
     Generate image using Gemini AI based on description.
     """
@@ -417,11 +444,12 @@ Requirements:
         logger.info(f"Generating image for slide {slide_index}: {description[:50]}...")
         
         response = client.models.generate_content(
-            model='gemini-3.1-flash-image-preview',
+            model=GEMINI_IMAGE_MODEL,
             contents=enhanced_prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
-                response_modalities=['Text', 'Image']
+                temperature=GEMINI_IMAGE_TEMPERATURE,
+                response_modalities=['Text', 'Image'],
+                thinking_config=types.ThinkingConfig(thinking_budget=GEMINI_IMAGE_THINKING_BUDGET)
             )
         )
         

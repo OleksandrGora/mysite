@@ -1,6 +1,6 @@
 TASK ID: 81070d8d
 TYPE: full_document
-MODEL: gemini-2.5-flash-lite
+MODEL: gemini-2.5-pro
 TIMESTAMP: 1777660832.0086956
 ==================================================
 Ти — експерт з написання документації українською мовою.

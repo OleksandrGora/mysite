@@ -1124,31 +1124,18 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         logger.info(f"[GENERATE] Generation prompt type: {type(generation_prompt)}")
         logger.info(f"[GENERATE] Generation prompt length: {len(generation_prompt)}")
         
-        # Generate full document in one pass
-        from .reasoning.generator import generate_document_full
-        markdown_text = generate_document_full(
-            analysis_text=analysis_text,
-            sources_data=sources_data,
-            task_id=task_id,
-            user_prompt=generation_prompt,
-            task_folder=folder_path
-        )
-        
-        # Convert markdown to DOCX
-        from .builders.markdown_to_docx import convert_markdown_to_docx
+        # Build document directly from analysis structure (like test_table_generator)
+        from .reasoning.document_builder import build_document_from_analysis
         
         output_dir = os.path.join(folder_path, 'temp')
         os.makedirs(output_dir, exist_ok=True)
         
-        temp_output = os.path.join(output_dir, 'temp_result.docx')
-        
-        success, warnings, error = convert_markdown_to_docx(markdown_text, temp_output)
-        
-        if not success:
-            raise ValueError(f"Markdown to DOCX conversion failed: {error}")
-        
-        if warnings:
-            logger.warning(f"[GENERATE] Conversion warnings: {warnings}")
+        temp_output = build_document_from_analysis(
+            analysis_text=analysis_text,
+            sources_data=sources_data,
+            task_id=task_id,
+            task_folder=folder_path
+        )
         
         # Save final document with proper name
         save_final_document(folder_path, temp_output)

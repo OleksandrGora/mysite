@@ -66,7 +66,7 @@ def index():
 
 @app.route('/login')
 def login():
-    return google.authorize_redirect(url_for('auth_callback', _external=True))
+    return google.authorize_redirect('https://openclaw.tailf549b1.ts.net/auth/callback')
 
 @app.route('/auth/callback')
 def auth_callback():

@@ -209,7 +209,7 @@ def create_presentation(filename, slides_data, images_dir=None):
 
         # Розміри зон — чітко 50/50 з відступами
         MARGIN = Inches(0.4)
-        CONTENT_TOP = Inches(2.3)       # під заголовком
+        CONTENT_TOP = Inches(2.0)       # під заголовком
         CONTENT_HEIGHT = Inches(5.0)
         HALF_W = slide_width // 2       # половина слайду в EMU
 

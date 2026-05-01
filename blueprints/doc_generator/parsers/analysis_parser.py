@@ -57,45 +57,60 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
         ParsedAnalysis with sections and tables
     """
     logger.info("Parsing JSON analysis...")
+    logger.info(f"[DEBUG] JSON text length: {len(analysis_text)} chars")
+    logger.info(f"[DEBUG] JSON text preview: {analysis_text[:200]}...")
     
     try:
         data = json.loads(analysis_text)
+        logger.info(f"[DEBUG] JSON parsed successfully, type: {type(data)}")
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON: {e}")
+        logger.error(f"[DEBUG] Failed to parse JSON: {e}")
+        logger.error(f"[DEBUG] JSON error position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
         # Fall back to text format
         return parse_text_analysis(analysis_text)
     
     if not isinstance(data, list):
-        logger.error("JSON analysis must be a list")
+        logger.error(f"[DEBUG] JSON analysis must be a list, got: {type(data)}")
         raise ValueError("Invalid JSON format: expected list")
+    
+    logger.info(f"[DEBUG] JSON list length: {len(data)} items")
     
     sections = []
     tables = []
     
-    for item in data:
+    for i, item in enumerate(data):
+        logger.info(f"[DEBUG] Processing item {i}: {item}")
+        
         item_type = item.get('type')
         item_id = item.get('id', 0)
         title = item.get('title', '')
         level = item.get('level', 1)
         
+        logger.info(f"[DEBUG] Item {i} - type: {item_type}, id: {item_id}, title: {title}")
+        
         if item_type == 'table':
+            columns = item.get('columns', [])
+            logger.info(f"[DEBUG] Found table with {len(columns)} columns: {columns}")
             tables.append(Table(
                 index=item_id,
                 title=title,
                 level=level,
-                columns=item.get('columns', [])
+                columns=columns
             ))
         elif item_type == 'text':
             description = item.get('description', {})
             if description is None:
                 desc_general = ''
                 desc_specific = ''
+                logger.info(f"[DEBUG] Text item {i} - description is None")
             elif isinstance(description, dict):
                 desc_general = description.get('general', '')
                 desc_specific = description.get('specific', '')
+                logger.info(f"[DEBUG] Text item {i} - description dict: general={len(desc_general)}, specific={len(desc_specific)}")
             else:
                 desc_general = str(description)
                 desc_specific = ''
+                logger.info(f"[DEBUG] Text item {i} - description string: {len(desc_general)}")
             
             # Parse word count range if present
             word_count_range = None
@@ -104,6 +119,7 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
                 match = re.search(r'від (\d+) до (\d+)', words)
                 if match:
                     word_count_range = (int(match.group(1)), int(match.group(2)))
+                    logger.info(f"[DEBUG] Text item {i} - word range: {word_count_range}")
             
             sections.append(Section(
                 index=item_id,
@@ -114,7 +130,11 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
                 has_text=True,  # JSON format always has text
                 word_count_range=word_count_range
             ))
+            logger.info(f"[DEBUG] Added section {i}: {title}")
+        else:
+            logger.warning(f"[DEBUG] Unknown item type: {item_type}")
     
+    logger.info(f"[DEBUG] Final counts - sections: {len(sections)}, tables: {len(tables)}")
     logger.info(f"Parsed JSON: {len(sections)} sections, {len(tables)} tables")
     return ParsedAnalysis(sections=sections, tables=tables)
 

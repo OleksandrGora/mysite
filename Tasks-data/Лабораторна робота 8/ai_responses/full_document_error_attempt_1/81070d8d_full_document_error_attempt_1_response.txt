@@ -1,0 +1,10 @@
+TASK ID: 81070d8d
+TYPE: full_document_error_attempt_1
+MODEL: gemini-2.5-pro
+TIMESTAMP: 1777660832.0086956
+==================================================
+ERROR: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+
+ATTEMPT: 1/3
+
+IS_503: True

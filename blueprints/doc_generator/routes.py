@@ -4,6 +4,7 @@ import json
 import uuid
 import time
 import shutil
+import traceback
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
 from loguru import logger
@@ -12,6 +13,17 @@ import re
 from celery import shared_task
 from functools import wraps
 from . import doc_generator_bp
+
+# Middleware для логування всіх запитів
+@doc_generator_bp.before_request
+def log_request_info():
+    """Log information about all requests to this blueprint."""
+    if request.method == 'POST':
+        logger.info(f"[DEBUG] POST request: {request.method} {request.path}")
+        logger.info(f"[DEBUG] Content-Type: {request.content_type}")
+        logger.info(f"[DEBUG] Request data preview: {request.get_data(as_text=True)[:200]}...")
+    elif request.method == 'GET':
+        logger.info(f"[DEBUG] GET request: {request.method} {request.path}")
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
 try:
@@ -21,7 +33,7 @@ except ImportError:
     create_document_plan = None
     save_plan = None
 from .reasoning.generator import generate_all_content
-from .builders.docx_builder import build_document, build_document_simple
+from .builders import build_document, build_document_simple
 try:
     from .rag.embedder import embed_all_sources, should_use_rag
     from .rag.retriever import retrieve_for_section, format_chunks_for_llm
@@ -230,6 +242,10 @@ def process_document_task(self, task_id, template_path, sources_paths, data_dir,
                 response1 = llm_call_with_retry(first_prompt, "LLM Analysis")
                 first_llm_response = response1.text
                 logger.info(f"[{task_id}] LLM analysis: {len(first_llm_response)} chars")
+                
+                # Save AI response for debugging
+                from .reasoning.generator import save_ai_response
+                save_ai_response(task_id, "llm_analysis", first_prompt, first_llm_response, folder_path)
                 
                 # Save LLM analysis for reference (can be used by planning)
                 analysis_path = os.path.join(task_dir, 'llm_analysis.json')
@@ -778,21 +794,55 @@ def run_analysis(task_id):
     })
 
 
-@doc_generator_bp.route('/api/tasks/<task_id>/analysis', methods=['PUT'])
+@doc_generator_bp.route('/api/tasks/<task_id>/save_analysis', methods=['POST'])
 @login_required
-def update_analysis(task_id):
-    """Update analysis text (after user editing)."""
-    task = get_task_by_id(task_id)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
-    
-    folder_path = task.get('folder_path')
-    data = request.get_json()
-    analysis_text = data.get('analysis', '')
-    
-    save_analysis_result(folder_path, analysis_text)
-    
-    return jsonify({'message': 'Analysis saved'})
+def save_analysis(task_id):
+    """Save edited analysis result."""
+    try:
+        logger.info(f"[DEBUG] Save analysis request for task: {task_id}")
+        logger.info(f"[DEBUG] Request content type: {request.content_type}")
+        logger.info(f"[DEBUG] Request data: {request.get_data(as_text=True)[:500]}...")
+        
+        task = get_task_by_id(task_id)
+        if not task:
+            logger.error(f"[DEBUG] Task not found: {task_id}")
+            return jsonify({'error': 'Task not found'}), 404
+        
+        folder_path = task.get('folder_path')
+        logger.info(f"[DEBUG] Task folder path: {folder_path}")
+        
+        try:
+            data = request.get_json()
+            logger.info(f"[DEBUG] JSON data parsed successfully")
+            logger.info(f"[DEBUG] Data keys: {list(data.keys()) if data else 'None'}")
+        except Exception as e:
+            logger.error(f"[DEBUG] Failed to parse JSON: {e}")
+            logger.error(f"[DEBUG] Raw request data: {request.get_data(as_text=True)}")
+            return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
+        
+        analysis_text = data.get('analysis', '')
+        logger.info(f"[DEBUG] Analysis text length: {len(analysis_text)} chars")
+        logger.info(f"[DEBUG] Analysis text preview: {analysis_text[:100]}...")
+        
+        if not analysis_text.strip():
+            logger.warning(f"[DEBUG] Analysis text is empty")
+            return jsonify({'error': 'Analysis text cannot be empty'}), 400
+        
+        save_analysis_result(folder_path, analysis_text)
+        logger.info(f"[DEBUG] Analysis saved successfully")
+        
+        result = {
+            'message': 'Analysis saved',
+            'analysis_text': analysis_text,
+            'word_count': len(analysis_text.split()) if analysis_text else 0
+        }
+        logger.info(f"[DEBUG] Returning result: {result}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"[DEBUG] Save analysis failed: {e}")
+        logger.error(f"[DEBUG] Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Save failed: {str(e)}'}), 500
 
 
 @doc_generator_bp.route('/api/tasks/<task_id>/generate', methods=['POST'])
@@ -1003,10 +1053,14 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         analysis_text = response.text
         logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
         
+        # Save AI response for debugging
+        from .reasoning.generator import save_ai_response
+        save_ai_response(task_id, "template_analysis", prompt, analysis_text, folder_path)
+        
         # Save analysis
         logger.info(f"[ANALYZE] Saving analysis result...")
         save_analysis_result(folder_path, analysis_text)
-        update_task_status(folder_path, 'idle')
+        update_task_status(folder_path, 'analysis_completed')
         
         logger.info(f"[ANALYZE] Completed for task {task_id}")
         return {'status': 'success', 'task_id': task_id}
@@ -1033,8 +1087,21 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         task_info = load_task_info(folder_path)
         analysis_text = load_analysis_result(folder_path)
         
+        logger.info(f"[GENERATE] Task info loaded: {task_info is not None}")
+        logger.info(f"[GENERATE] Analysis text loaded: {analysis_text is not None}")
+        
         if not analysis_text:
             raise ValueError("Analysis not found. Run analysis first.")
+        
+        # Validate analysis_text is not None and has content
+        if analysis_text is None:
+            raise ValueError("Analysis text is None. Run analysis first.")
+        
+        if not isinstance(analysis_text, str):
+            raise ValueError(f"Analysis text is not string: {type(analysis_text)}")
+        
+        if not analysis_text.strip():
+            raise ValueError("Analysis text is empty. Run analysis first.")
         
         # Load source files
         sources_data = {}
@@ -1048,13 +1115,23 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         if not sources_data:
             raise ValueError("No source files found or could not be parsed.")
         
+        # Validate generation_prompt
+        if generation_prompt is None:
+            generation_prompt = ""
+        elif not isinstance(generation_prompt, str):
+            generation_prompt = str(generation_prompt)
+        
+        logger.info(f"[GENERATE] Generation prompt type: {type(generation_prompt)}")
+        logger.info(f"[GENERATE] Generation prompt length: {len(generation_prompt)}")
+        
         # Generate full document in one pass
         from .reasoning.generator import generate_document_full
         markdown_text = generate_document_full(
             analysis_text=analysis_text,
             sources_data=sources_data,
             task_id=task_id,
-            user_prompt=generation_prompt
+            user_prompt=generation_prompt,
+            task_folder=folder_path
         )
         
         # Convert markdown to DOCX

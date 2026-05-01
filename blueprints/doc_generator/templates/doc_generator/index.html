@@ -860,15 +860,17 @@
         async function saveAnalysis() {
             const taskId = document.getElementById('task-id').value;
             const analysisContent = document.getElementById('analysis-content').value;
-            
+            showToast('Спроба збереження аналізу', 'success');
+            log('Спроба збереження аналізу', 'success');
+
             if (!taskId) {
                 showToast('Спочатку створіть завдання', 'error');
                 return;
             }
             
             try {
-                const response = await fetch(`${API_BASE}/api/tasks/${taskId}/analysis`, {
-                    method: 'PUT',
+                const response = await fetch(`${API_BASE}/api/tasks/${taskId}/save_analysis`, {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ analysis: analysisContent })
                 });
@@ -880,6 +882,7 @@
                 log('Аналіз збережено', 'success');
             } catch (e) {
                 showToast('Помилка збереження: ' + e.message, 'error');
+                log('Помилка збереження: ' + e.message, 'error');
             }
         }
         
@@ -887,7 +890,8 @@
         async function generateDocument() {
             const taskId = document.getElementById('task-id').value;
             const generationPrompt = document.getElementById('generation-prompt').value;
-            
+            log(`починаємо генерувати документ для завдання ${taskId}`, 'success');
+
             if (!taskId) {
                 showToast('Спочатку створіть завдання та виконайте аналіз', 'error');
                 return;

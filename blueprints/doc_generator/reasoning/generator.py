@@ -8,20 +8,171 @@ Generates:
 """
 import json
 import gc
+import os
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
-from loguru import logger
-
-from google import genai
+from dataclasses import dataclass
+from pathlib import Path
+from pydantic import BaseModel
+import google.genai as genai
 from ..config import (
     GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE,
     MAX_TOKENS_PER_SECTION, MAX_TOKENS_FOR_TABLE,
     SECTION_GENERATION_PROMPT, TABLE_GENERATION_PROMPT,
     FULL_DOCUMENT_GENERATION_PROMPT
 )
+from loguru import logger
 
-# Initialize client
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+# Initialize Gemini client
+client = None
+if GEMINI_API_KEY:
+    try:
+        # For new google-genai package
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini client: {e}")
+else:
+    logger.warning("GEMINI_API_KEY not configured")
+
+
+def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None):
+    """
+    Зберегти AI відповідь в папку завдання для відлагодження.
+    
+    Args:
+        task_id: ID завдання
+        response_type: Тип відповіді (section_N, table_N, full_document, etc.)
+        prompt: Промпт що відправився до AI
+        response: Відповідь від AI
+        task_folder: Папка завдання (якщо є)
+    """
+    # Debug info: input parameters
+    logger.info(f"[DEBUG] Saving AI response for task: {task_id}")
+    logger.info(f"[DEBUG] Response type: {response_type}")
+    logger.info(f"[DEBUG] Task folder: {task_folder}")
+    logger.info(f"[DEBUG] Prompt length: {len(prompt)} chars")
+    logger.info(f"[DEBUG] Response length: {len(response)} chars")
+    
+    # Визначити базову папку для збереження
+    if task_folder:
+        base_dir = task_folder
+        logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
+    else:
+        # Якщо папка завдання не вказана, зберігати в temp
+        base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'temp')
+        os.makedirs(base_dir, exist_ok=True)
+        logger.info(f"[DEBUG] Using temp folder as base dir: {base_dir}")
+    
+    # Створити папку для AI відповідей
+    ai_responses_dir = os.path.join(base_dir, 'ai_responses')
+    os.makedirs(ai_responses_dir, exist_ok=True)
+    logger.info(f"[DEBUG] AI responses directory: {ai_responses_dir}")
+    logger.info(f"[DEBUG] AI responses dir exists: {os.path.exists(ai_responses_dir)}")
+    
+    # Створити папку для конкретного типу відповіді
+    type_dir = os.path.join(ai_responses_dir, response_type)
+    os.makedirs(type_dir, exist_ok=True)
+    logger.info(f"[DEBUG] Type directory: {type_dir}")
+    logger.info(f"[DEBUG] Type dir exists: {os.path.exists(type_dir)}")
+    
+    try:
+        # Зберегти промпт
+        prompt_filename = f"{task_id}_{response_type}_prompt.txt"
+        prompt_path = os.path.join(type_dir, prompt_filename)
+        logger.info(f"[DEBUG] Saving prompt to: {prompt_path}")
+        
+        with open(prompt_path, 'w', encoding='utf-8') as f:
+            f.write(f"TASK ID: {task_id}\n")
+            f.write(f"TYPE: {response_type}\n")
+            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
+            f.write("="*50 + "\n")
+            f.write(prompt)
+        
+        # Зберегти відповідь
+        response_filename = f"{task_id}_{response_type}_response.txt"
+        response_path = os.path.join(type_dir, response_filename)
+        logger.info(f"[DEBUG] Saving response to: {response_path}")
+        
+        with open(response_path, 'w', encoding='utf-8') as f:
+            f.write(f"TASK ID: {task_id}\n")
+            f.write(f"TYPE: {response_type}\n")
+            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
+            f.write("="*50 + "\n")
+            f.write(response)
+        
+        # Debug info: files saved successfully
+        prompt_size = os.path.getsize(prompt_path)
+        response_size = os.path.getsize(response_path)
+        logger.info(f"[DEBUG] Prompt file saved: {prompt_size} bytes")
+        logger.info(f"[DEBUG] Response file saved: {response_size} bytes")
+        logger.info(f"[DEBUG] Files exist after save: {os.path.exists(prompt_path)}, {os.path.exists(response_path)}")
+        
+        logger.info(f"AI response saved: {response_path}")
+        
+    except Exception as e:
+        logger.error(f"[DEBUG] Failed to save AI response: {e}")
+        logger.error(f"[DEBUG] Prompt path: {prompt_path}")
+        logger.error(f"[DEBUG] Response path: {response_path}")
+        raise
+
+
+def load_ai_response(task_id: str, response_type: str, task_folder: str = None) -> Optional[str]:
+    """
+    Завантажити збережену AI відповідь для відлагодження.
+    
+    Args:
+        task_id: ID завдання
+        response_type: Тип відповіді (section, table, full_document)
+        task_folder: Шлях до папки завдання (якщо є)
+        
+    Returns:
+        Збережена відповідь або None
+    """
+    # Debug info: input parameters
+    logger.info(f"[DEBUG] Loading AI response for task: {task_id}")
+    logger.info(f"[DEBUG] Response type: {response_type}")
+    logger.info(f"[DEBUG] Task folder: {task_folder}")
+    
+    try:
+        # Визначити папку для пошуку
+        if task_folder and os.path.exists(task_folder):
+            base_dir = Path(task_folder)
+            logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
+        else:
+            base_dir = Path("/home/openclaw/mysite/blueprints/doc_generator/temp/ai_responses")
+            logger.info(f"[DEBUG] Using default temp folder as base dir: {base_dir}")
+        
+        response_file = base_dir / "ai_responses" / response_type / f"{task_id}_{response_type}_response.txt"
+        logger.info(f"[DEBUG] Looking for response file: {response_file}")
+        logger.info(f"[DEBUG] Response file exists: {response_file.exists()}")
+        
+        if response_file.exists():
+            logger.info(f"[DEBUG] Response file found, loading content...")
+            with open(response_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Debug info: file loaded successfully
+            file_size = response_file.stat().st_size
+            logger.info(f"[DEBUG] Response file loaded: {file_size} bytes")
+            logger.info(f"[DEBUG] Content length: {len(content)} chars")
+            logger.info(f"[DEBUG] Content preview: {content[:100]}...")
+            
+            # Видалити заголовок
+            if "="*50 in content:
+                cleaned_content = content.split("="*50, 1)[1].strip()
+                logger.info(f"[DEBUG] Content cleaned (removed header)")
+                return cleaned_content
+            
+            logger.info(f"[DEBUG] Content returned as-is (no header found)")
+            return content.strip()
+        
+        logger.warning(f"[DEBUG] Response file not found: {response_file}")
+        return None
+        
+    except Exception as e:
+        logger.warning(f"[{task_id}] Failed to load AI response: {e}")
+        return None
 
 
 class GeneratedSection(BaseModel):
@@ -149,6 +300,9 @@ def generate_section_content(
         
         content = response.text.strip()
         
+        # Save AI response for debugging
+        save_ai_response(task_id, f"section_{section_plan.get('section_index', 'unknown')}", prompt, content)
+        
         # Clean up common LLM artifacts
         if content.startswith('##') or content.startswith('**'):
             # Remove markdown headers
@@ -223,6 +377,9 @@ def generate_table_data(
         # Parse JSON response
         response_text = response.text.strip()
         
+        # Save AI response for debugging
+        save_ai_response(task_id, f"table_{table_plan.get('table_index', 'unknown')}", prompt, response_text)
+        
         # Clean markdown wrappers
         if response_text.startswith('```json'):
             response_text = response_text[7:]
@@ -232,7 +389,20 @@ def generate_table_data(
             response_text = response_text[:-3]
         response_text = response_text.strip()
         
-        rows = json.loads(response_text)
+        logger.info(f"[{task_id}] Table response text: {response_text[:200]}...")
+        
+        # Check if response is empty or only contains headers
+        if not response_text or response_text.lower() in ['[]', '[{}]', '[]']:
+            logger.warning(f"[{task_id}] Table response is empty or contains only headers")
+            rows = []
+        else:
+            try:
+                rows = json.loads(response_text)
+                logger.info(f"[{task_id}] Table JSON parsed successfully: {len(rows)} rows")
+            except json.JSONDecodeError as e:
+                logger.error(f"[{task_id}] Failed to parse table JSON: {e}")
+                logger.error(f"[{task_id}] Response text: {response_text}")
+                rows = []
         
         # Validate structure
         if not isinstance(rows, list):
@@ -366,31 +536,41 @@ def generate_document_full(
     analysis_text: str,
     sources_data: Dict[str, Dict[str, Any]],
     task_id: str = "unknown",
-    user_prompt: Optional[str] = None
+    user_prompt: Optional[str] = None,
+    task_folder: Optional[str] = None
 ) -> str:
     """
     Generate full document in one pass using LLM.
     
     Args:
-        analysis_text: Parsed analysis from template analysis
-        sources_data: Sources with text content
+        analysis_text: Parsed analysis text
+        sources_data: Dictionary of source name -> parsed source data
         task_id: For logging
-        user_prompt: Optional user prompt
+        user_prompt: Optional user prompt for generation
+        task_folder: Optional task folder path for saving AI responses
         
     Returns:
-        Markdown text of the generated document
+        Generated markdown text
     """
     logger.info(f"[{task_id}] Starting full document generation (one-pass)...")
+    logger.info(f"[{task_id}] Using only analysis.txt data, no test data generation")
     
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not configured")
     
-    if not client:
-        raise ValueError("GEMINI_API_KEY not configured")
-    
-    # Parse analysis to get structure
-    from ..parsers.analysis_parser import parse_analysis, build_markdown_structure
+    # Parse analysis text to get structure
+    from ..parsers.analysis_parser import parse_analysis
     parsed_analysis = parse_analysis(analysis_text)
+    
+    logger.info(f"[{task_id}] Parsed analysis: {len(parsed_analysis.sections)} sections, {len(parsed_analysis.tables)} tables")
+    
+    # Log table details for debugging
+    for i, table in enumerate(parsed_analysis.tables):
+        logger.info(f"[{task_id}] Table {i+1}: {table.title} with {len(table.columns)} columns")
+        if not table.columns:
+            logger.warning(f"[{task_id}] Table {i+1} has no columns - will generate empty table")
+        else:
+            logger.info(f"[{task_id}] Table {i+1} columns: {', '.join(table.columns)}")
     
     # Build structure description for prompt
     structure_lines = []
@@ -440,6 +620,11 @@ def generate_document_full(
     
     for attempt in range(max_retries):
         try:
+            # Save prompt before calling AI (for debugging, even if AI fails)
+            if attempt == 0:
+                logger.info(f"[DEBUG] Saving prompt before AI call for full_document")
+                save_ai_response(task_id, "full_document_prompt", prompt, "[PENDING - AI call in progress]", task_folder)
+            
             logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
             response = client.models.generate_content(
                 model=REASONING_MODEL,
@@ -448,6 +633,15 @@ def generate_document_full(
             )
             
             markdown_text = response.text.strip()
+            
+            # Save AI response for debugging
+            logger.info(f"[DEBUG] About to save AI response for full_document")
+            logger.info(f"[DEBUG] Task folder: {task_folder}")
+            logger.info(f"[DEBUG] Task ID: {task_id}")
+            logger.info(f"[DEBUG] Response type: full_document")
+            logger.info(f"[DEBUG] Markdown text length: {len(markdown_text)}")
+            save_ai_response(task_id, "full_document", prompt, markdown_text, task_folder)
+            logger.info(f"[DEBUG] AI response saved for full_document")
             
             # Clean up common LLM artifacts
             if markdown_text.startswith('```'):
@@ -469,6 +663,12 @@ def generate_document_full(
         except Exception as e:
             error_str = str(e)
             is_503_error = '503' in error_str or 'UNAVAILABLE' in error_str
+            
+            # Save error for debugging
+            logger.info(f"[DEBUG] Saving AI error response for full_document_error")
+            error_response = f"ERROR: {error_str}\n\nATTEMPT: {attempt + 1}/{max_retries}\n\nIS_503: {is_503_error}"
+            save_ai_response(task_id, f"full_document_error_attempt_{attempt + 1}", prompt, error_response, task_folder)
+            logger.info(f"[DEBUG] AI error response saved")
             
             if is_503_error and attempt < max_retries - 1:
                 delay = retry_delays[attempt]

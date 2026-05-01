@@ -139,14 +139,36 @@ def update_task_status(task_folder: str, status: str, error_message: str = None)
 def save_analysis_result(task_folder: str, analysis_text: str):
     """Save analysis result to analysis.txt."""
     analysis_path = os.path.join(task_folder, "analysis.txt")
-    with open(analysis_path, 'w', encoding='utf-8') as f:
-        f.write(analysis_text)
+    
+    # Debug info: file path and content size
+    logger.info(f"[DEBUG] Saving analysis to: {analysis_path}")
+    logger.info(f"[DEBUG] Analysis text length: {len(analysis_text)} chars")
+    logger.info(f"[DEBUG] Analysis word count: {len(analysis_text.split())} words")
+    logger.info(f"[DEBUG] Task folder exists: {os.path.exists(task_folder)}")
+    logger.info(f"[DEBUG] Task folder path: {task_folder}")
+    
+    try:
+        with open(analysis_path, 'w', encoding='utf-8') as f:
+            f.write(analysis_text)
+        
+        # Debug info: file saved successfully
+        file_size = os.path.getsize(analysis_path)
+        logger.info(f"[DEBUG] Analysis file saved successfully")
+        logger.info(f"[DEBUG] File size: {file_size} bytes")
+        logger.info(f"[DEBUG] File exists after save: {os.path.exists(analysis_path)}")
+        
+    except Exception as e:
+        logger.error(f"[DEBUG] Failed to save analysis file: {e}")
+        raise
     
     # Update task info
     task_info = load_task_info(task_folder)
     if task_info:
         task_info["analysis_result"] = "analysis.txt"
         save_task_info(task_folder, task_info)
+        logger.info(f"[DEBUG] Task info updated with analysis_result path")
+    else:
+        logger.warning(f"[DEBUG] Could not load task info to update analysis_result")
     
     logger.info(f"Analysis saved: {analysis_path}")
 
@@ -154,10 +176,34 @@ def save_analysis_result(task_folder: str, analysis_text: str):
 def load_analysis_result(task_folder: str) -> Optional[str]:
     """Load analysis result from analysis.txt."""
     analysis_path = os.path.join(task_folder, "analysis.txt")
+    
+    # Debug info: file path and existence check
+    logger.info(f"[DEBUG] Loading analysis from: {analysis_path}")
+    logger.info(f"[DEBUG] Task folder path: {task_folder}")
+    logger.info(f"[DEBUG] Task folder exists: {os.path.exists(task_folder)}")
+    logger.info(f"[DEBUG] Analysis file exists: {os.path.exists(analysis_path)}")
+    
     if not os.path.exists(analysis_path):
+        logger.warning(f"[DEBUG] Analysis file not found: {analysis_path}")
         return None
-    with open(analysis_path, 'r', encoding='utf-8') as f:
-        return f.read()
+    
+    try:
+        with open(analysis_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Debug info: file loaded successfully
+        file_size = os.path.getsize(analysis_path)
+        logger.info(f"[DEBUG] Analysis file loaded successfully")
+        logger.info(f"[DEBUG] File size: {file_size} bytes")
+        logger.info(f"[DEBUG] Content length: {len(content)} chars")
+        logger.info(f"[DEBUG] Word count: {len(content.split())} words")
+        logger.info(f"[DEBUG] Content preview: {content[:100]}...")
+        
+        return content
+        
+    except Exception as e:
+        logger.error(f"[DEBUG] Failed to load analysis file: {e}")
+        raise
 
 
 def save_final_document(task_folder: str, document_path: str):

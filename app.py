@@ -8,6 +8,8 @@ from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import os
 import logging
+from loguru import logger
+import sys
 
 load_dotenv()
 
@@ -17,6 +19,22 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[logging.StreamHandler()]
 )
+
+# Налаштування loguru для запису в файл
+log_dir = '/home/openclaw/mysite/logs'
+os.makedirs(log_dir, exist_ok=True)
+logger.add(
+    os.path.join(log_dir, "mysite_{time:YYYY-MM-DD}.log"),
+    rotation="00:00",  # Новий файл щодня
+    retention="7 days",  # Зберігати логи 7 днів
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+    enqueue=True,  # Асинхронний запис для потокобезпеки
+    backtrace=True,  # Детальні трейси
+    diagnose=True
+)
+# Додатково логувати в stderr для systemd
+logger.add(sys.stderr, level="INFO")
 
 app = Flask(__name__)
 app.register_blueprint(converter_bp)
@@ -70,15 +88,20 @@ def login():
 
 @app.route('/auth/callback')
 def auth_callback():
-    token = google.authorize_access_token()
-    user = token['userinfo']
-    if user['email'] not in ALLOWED_EMAILS:
-        return 'Доступ заборонено', 403
-    session['email'] = user['email']
-    session['token'] = token
-    logger.error("TOKEN KEYS: %s", list(token.keys()))  # <- додай цей рядок
+    try:
+        token = google.authorize_access_token()
+    except Exception:
+        return redirect(url_for('login'))
+    
+    user_info = token.get('userinfo')
+    email = user_info.get('email')
+    
+    if email not in ALLOWED_EMAILS:
+        return render_template('access_denied.html', email=email), 403
+    
+    session['email'] = email
     return redirect(url_for('index'))
-
+    
 @app.route('/logout')
 def logout():
     session.clear()

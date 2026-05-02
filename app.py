@@ -1,5 +1,5 @@
 # перезапуск сервера після змін sudo systemctl restart mysite.service
-from converter import converter_bp
+from blueprints.txt_to_docx_converter import converter_bp
 from blueprints.doc_generator import doc_generator_bp
 from blueprints.pptx_generator import pptx_generator_bp
 from celery_worker import celery_app
@@ -99,7 +99,10 @@ def auth_callback():
     if email not in ALLOWED_EMAILS:
         return render_template('access_denied.html', email=email), 403
     
+    # Converter flow depends on OAuth token in session
+    session['token'] = token
     session['email'] = email
+    session.modified = True
     return redirect(url_for('index'))
     
 @app.route('/logout')

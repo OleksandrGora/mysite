@@ -643,36 +643,6 @@ def run_cleanup():
     })
 
 
-@doc_generator_bp.route('/api/tasks/<task_id>/download', methods=['GET'])
-@login_required
-def download_result(task_id):
-    """Download completed document."""
-    sys.stderr.write(f"[DOWNLOAD] Request for task {task_id}\n")
-    task = get_task_by_id(task_id)
-    sys.stderr.write(f"[DOWNLOAD] Task found: {task is not None}\n")
-    
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
-    
-    if task.get('status') != 'completed':
-        return jsonify({'error': 'Task not completed'}), 400
-    
-    final_doc = task.get('final_document')
-    folder_path = task.get('folder_path')
-    
-    sys.stderr.write(f"[DOWNLOAD] final_doc={final_doc}, folder_path={folder_path}\n")
-    
-    if not final_doc or not folder_path:
-        return jsonify({'error': 'No document available'}), 404
-    
-    file_path = os.path.join(folder_path, final_doc)
-    if not os.path.exists(file_path):
-        sys.stderr.write(f"[DOWNLOAD] File not found: {file_path}\n")
-        return jsonify({'error': 'File not found'}), 404
-    
-    return send_file(file_path, as_attachment=True, download_name=final_doc)
-
-
 # ============================================================================
 # NEW ARCHITECTURE API - Task-based document generation
 # ============================================================================

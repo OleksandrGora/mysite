@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, session, send_file
+from flask import render_template, request, redirect, url_for, session, send_file
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
@@ -10,28 +10,24 @@ import logging
 import traceback
 import re
 
-logger = logging.getLogger(__name__)
+from . import converter_bp
 
-converter_bp = Blueprint('converter', __name__)
+logger = logging.getLogger(__name__)
 
 PANDOC = '/usr/bin/pandoc'
 
 REPLACEMENTS = [
-    ('\\tg',  '\\tan'),
+    ('\\tg', '\\tan'),
     ('\\ctg', '\\cot'),
     ('\\tgh', '\\tanh'),
     ('\\arctg', '\\arctan'),
     ('\\approx', '='),
 ]
 
-# -------------------------------------------------------
-# Helpers для credentials
-# -------------------------------------------------------
 
 def _make_credentials():
     """Storjuje Credentials z danij sesiyi."""
     t = session['token']
-    # Authlib returns token in a specific structure
     return Credentials(
         token=t.get('access_token'),
         refresh_token=t.get('refresh_token'),
@@ -40,6 +36,7 @@ def _make_credentials():
         client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
         scopes=t.get('scope', '').split()
     )
+
 
 def is_token_valid():
     """
@@ -56,7 +53,6 @@ def is_token_valid():
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(GoogleRequest())
-                # Зберігаємо оновлений access_token в сесію
                 session['token']['access_token'] = creds.token
                 session.modified = True
             except Exception as e:
@@ -66,6 +62,7 @@ def is_token_valid():
             return False
 
     return True
+
 
 def get_drive_service():
     t = session['token']
@@ -78,7 +75,6 @@ def get_drive_service():
         scopes=t.get('scope', '').split()
     )
     if not creds.valid and creds.expired and creds.refresh_token:
-        from google.auth.transport.requests import Request as GoogleRequest
         try:
             creds.refresh(GoogleRequest())
             session['token']['access_token'] = creds.token
@@ -88,9 +84,6 @@ def get_drive_service():
             raise RuntimeError("TOKEN_EXPIRED")
     return build('drive', 'v3', credentials=creds)
 
-# -------------------------------------------------------
-# Drive helpers
-# -------------------------------------------------------
 
 def get_or_create_folder(drive, folder_name):
     try:
@@ -107,74 +100,56 @@ def get_or_create_folder(drive, folder_name):
         ).execute()
         return folder['id']
     except Exception as e:
-        # Check for token expiration errors
         error_str = str(e)
         if "invalid_grant" in error_str or "unauthorized_client" in error_str or "TOKEN_EXPIRED" in error_str:
             logger.warning("Token expired in get_or_create_folder, raising TOKEN_EXPIRED")
             raise RuntimeError("TOKEN_EXPIRED")
         raise
 
-# -------------------------------------------------------
-# Конвертація
-# -------------------------------------------------------
 
 def preprocess(text):
     for old, new in REPLACEMENTS:
         text = text.replace(old, new)
 
-    # Заміна тире на мінус
     text = text.replace('\u2012', '-')
     text = text.replace('\u2013', '-')
     text = text.replace('\u2014', '-')
     text = text.replace('\u2015', '-')
     text = text.replace('\u2212', '-')
 
-    # Замінюємо горизонтальні лінії на порожній абзац
     text = re.sub(r'^\s*---+\s*$', '\n\n\u00A0\n\n', text, flags=re.MULTILINE)
-
-    # Додаємо порожній рядок перед маркованими та нумерованими списками
     text = re.sub(r'([^\n])\n(- )', r'\1\n\n\2', text)
     text = re.sub(r'([^\n])\n(\* )', r'\1\n\n\2', text)
     text = re.sub(r'([^\n])\n(\d+\. )', r'\1\n\n\2', text)
-
-    # Замінюємо *   на - (нормальний маркований список)
     text = re.sub(r'^\*\s+', '- ', text, flags=re.MULTILINE)
-
-    # Додаємо порожній рядок перед рядками що починаються з $
     text = re.sub(r'([^\n])\n(\$)', r'\1\n\n\2', text)
     text = re.sub(r'(\*\*[^*]+\*\*\.?)\n(\$)', r'\1\n\n\2', text)
 
-    # Замінюємо ≈ на =
     text = text.replace('\u2248', '=')
     text = text.replace('\u2245', '=')
     text = text.replace('\u224A', '=')
 
-    # Прибираємо AI-мітки посилань
     text = re.sub(r'\[cite_start\]', '', text)
     text = re.sub(r'\[cite_end\]', '', text)
     text = re.sub(r'\[cite:\s*\d+(?:\s*,\s*\d+)*\]', '', text)
 
-    # Прибираємо \mathbf{} з формул (залишаємо тільки вміст)
     text = re.sub(r'\\mathbf\{([^}]+)\}', r'\1', text)
 
-    # Замінюємо коми на крапки в десяткових числах (скрізь)
-    # Обробляємо паттерн: цифра,кома,1+ цифр (але не більше цифр після — щоб не зачепити тисячі)
     before_replace = text
     text = re.sub(r'(\d),(\d+)(?!\d)', r'\1.\2', text)
     after_replace = text
     if before_replace != after_replace:
         logger.info("Comma replacement applied. Changes made.")
     else:
-        # Перевіряємо, чи є коми в числах які не були замінені
         unmatched = re.findall(r'\d,\d+', text)
         if unmatched:
             logger.warning("Found unmatched decimal commas: %s", unmatched[:10])
 
-    # Замінюємо LaTeX block формули \[...\] на $$...$$ для Pandoc
     text = re.sub(r'\\\[', '$$', text)
     text = re.sub(r'\\\]', '$$', text)
 
     return text
+
 
 def parse_pandoc_warnings(stderr_text):
     warnings = []
@@ -184,14 +159,15 @@ def parse_pandoc_warnings(stderr_text):
             warnings.append(line)
     return warnings
 
+
 def run_pandoc(src, dst):
     try:
         result = subprocess.run(
             [PANDOC, src,
-            '-f', 'markdown+tex_math_single_backslash+tex_math_dollars',
-            '-t', 'docx',
-            '--reference-doc=/home/openclaw/mysite/reference.docx',
-            '-o', dst],
+             '-f', 'markdown+tex_math_single_backslash+tex_math_dollars',
+             '-t', 'docx',
+             '--reference-doc=/home/openclaw/mysite/reference.docx',
+             '-o', dst],
             capture_output=True,
             text=True,
             timeout=120,
@@ -213,6 +189,7 @@ def run_pandoc(src, dst):
 
     return True, warnings, None
 
+
 def postprocess_docx(path):
     from docx import Document
     from docx.oxml.ns import qn
@@ -222,25 +199,21 @@ def postprocess_docx(path):
 
     doc = Document(path)
 
-    # Прибираємо bold та italic
     for para in doc.paragraphs:
         for run in para.runs:
             run.bold = False
             run.italic = False
 
-    # Прибираємо bookmarks
     body = doc.element.body
     for bm in body.findall('.//' + qn('w:bookmarkStart')):
         bm.getparent().remove(bm)
     for bm in body.findall('.//' + qn('w:bookmarkEnd')):
         bm.getparent().remove(bm)
 
-    # Поля документу
     section = doc.sections[0]
     section.left_margin = Cm(2)
     section.right_margin = Cm(1)
 
-    # Допоміжні функції для таблиць
     def set_table_width(table):
         tbl = table._tbl
         tblPr = tbl.find(qn('w:tblPr'))
@@ -262,11 +235,9 @@ def postprocess_docx(path):
         tblLayout.set(qn('w:type'), 'autofit')
         tblPr.append(tblLayout)
 
-        # Прибираємо tblGrid (фіксована сітка колонок)
         for tblGrid in tbl.findall(qn('w:tblGrid')):
             tbl.remove(tblGrid)
 
-        # Прибираємо фіксовану ширину з кожної комірки
         for tc in tbl.findall('.//' + qn('w:tc')):
             tcPr = tc.find(qn('w:tcPr'))
             if tcPr is not None:
@@ -297,7 +268,6 @@ def postprocess_docx(path):
             tcMar.append(el)
         tcPr.append(tcMar)
 
-    # Форматування таблиць
     for table in doc.tables:
         set_table_width(table)
         for row in table.rows:
@@ -320,37 +290,31 @@ def postprocess_docx(path):
 
     doc.save(path)
 
-# -------------------------------------------------------
-# Роут
-# -------------------------------------------------------
 
 @converter_bp.route('/converter', methods=['GET', 'POST'])
 def converter():
     if 'email' not in session:
         return redirect(url_for('login'))
 
-    # Перевіряємо та оновлюємо токен перед конвертацією
     if not is_token_valid():
-        # Токен не валідний і не вдалося оновити — потрібен повторний логін
         session.clear()
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        # Get both text input and file
         text_input = request.form.get('text_input', '').strip()
         f = request.files.get('file')
-        
-        # Validate input
+
         if not text_input and not f:
             return render_template('converter.html', error='Please enter text or select a file')
-        
+
         if text_input and f and f.filename:
-            return render_template('converter.html', 
+            return render_template(
+                'converter.html',
                 error='Both text and file provided. Text input will be used for conversion.',
                 warnings=[],
-                filename=f.filename)
-        
-        # Use text input if provided, otherwise use file
+                filename=f.filename
+            )
+
         if text_input:
             content = text_input
             filename = 'text_input.md'
@@ -362,8 +326,7 @@ def converter():
                     f.seek(0)
                     content = f.read().decode('cp1251')
                 except Exception as e:
-                    return render_template('converter.html',
-                        error=f'Failed to read file: {e}')
+                    return render_template('converter.html', error=f'Failed to read file: {e}')
             filename = f.filename
 
         content = preprocess(content)
@@ -379,14 +342,15 @@ def converter():
 
             if not success:
                 logger.error("Pandoc failed: %s", error_text)
-                return render_template('converter.html',
+                return render_template(
+                    'converter.html',
                     error=error_text,
                     warnings=warnings,
-                    filename=filename)
+                    filename=filename
+                )
 
             postprocess_docx(dst)
 
-            # Якщо користувач хоче просто завантажити DOCX
             if request.form.get('action') == 'download':
                 from io import BytesIO
                 output_filename = filename.rsplit('.', 1)[0] + '.docx'
@@ -399,7 +363,6 @@ def converter():
                     download_name=output_filename
                 )
 
-            # Інакше завантажуємо на Google Drive
             try:
                 logger.info("Starting Google Drive upload...")
                 drive = get_drive_service()
@@ -427,20 +390,23 @@ def converter():
                 logger.error("Google Drive upload failed: %s", traceback.format_exc())
                 logger.error("Error type: %s", type(e).__name__)
                 logger.error("Error details: %s", error_msg)
-                
-                # Якщо токен протермінований — перенаправляємо на логін
+
                 if str(e) == "TOKEN_EXPIRED" or "invalid_grant" in str(e) or "unauthorized_client" in str(e):
                     logger.warning("Token expired or unauthorized, clearing session and redirecting to login")
                     session.clear()
                     return redirect(url_for('login'))
-                return render_template('converter.html',
+                return render_template(
+                    'converter.html',
                     error=f'Файл конвертовано, але помилка завантаження на Drive: {error_msg}',
                     warnings=warnings,
-                    filename=filename)
+                    filename=filename
+                )
 
-            return render_template('converter.html',
+            return render_template(
+                'converter.html',
                 link=uploaded.get('webViewLink'),
                 warnings=warnings,
-                filename=filename)
+                filename=filename
+            )
 
     return render_template('converter.html')

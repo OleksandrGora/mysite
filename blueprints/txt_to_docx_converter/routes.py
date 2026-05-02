@@ -166,7 +166,7 @@ def run_pandoc(src, dst):
             [PANDOC, src,
              '-f', 'markdown+tex_math_single_backslash+tex_math_dollars',
              '-t', 'docx',
-             '--reference-doc=/home/openclaw/mysite/reference.docx',
+             f'--reference-doc={os.path.dirname(__file__)}/reference.docx',
              '-o', dst],
             capture_output=True,
             text=True,

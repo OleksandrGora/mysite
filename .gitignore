@@ -11,3 +11,5 @@ celerybeat-schedule
 *.key
 *.crt
 *.pem
+Tasks-data/
+data/

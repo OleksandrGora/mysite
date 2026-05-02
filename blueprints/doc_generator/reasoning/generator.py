@@ -254,7 +254,7 @@ def build_table_prompt(
     headers_text = ', '.join(columns) if columns else "(headers from template)"
     
     prompt = TABLE_GENERATION_PROMPT.format(
-        table_name=table_name,
+        table_name=purpose,
         columns=headers_text,
         sources=sources_block
     )

@@ -120,7 +120,7 @@ def _sse_event(event_type, data):
 @login_required
 def index():
     """Main page with JSON input form."""
-    return render_template('pptx_generator/index.html')
+    return render_template('pptx_generator/index-pptx-generator.html')
 
 
 @pptx_generator_bp.route('/api/generate', methods=['POST'])

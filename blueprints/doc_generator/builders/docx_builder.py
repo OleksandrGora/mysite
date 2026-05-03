@@ -162,7 +162,7 @@ def build_document(
     
     Args:
         template_path: Path to original template (DOCX or PDF)
-        generated_content: Content from generator.generate_all_content()
+        generated_content: Content from document_builder.build_document_from_analysis()
         output_path: Where to save result
         task_id: For logging
         

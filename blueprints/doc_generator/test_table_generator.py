@@ -353,7 +353,7 @@ def main():
     """Головна функція для запуску з командного рядка."""
     
     # Хардкод шлях до analysis.txt
-    analysis_path = Path("/home/openclaw/mysite/Tasks-data/Лабораторна робота 8/analysis.txt")
+    analysis_path = Path("/home/openclaw/mysite/blueprints/doc_generator/Tasks-data/Лабораторна робота 8/analysis.txt")
     
     logger.info(f"📂 Завантаження analysis.txt: {analysis_path}")
     

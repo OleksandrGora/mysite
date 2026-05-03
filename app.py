@@ -2,7 +2,7 @@
 from blueprints.txt_to_docx_converter import converter_bp
 from blueprints.doc_generator import doc_generator_bp
 from blueprints.pptx_generator import pptx_generator_bp
-from celery_worker import celery_app
+from blueprints.doc_generator.celery_worker import celery_app
 from flask import Flask, render_template, redirect, url_for, session
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
@@ -73,7 +73,7 @@ google = oauth.register(
 SERVICES = [
     {"name": "Конвертер LaTeX → Google Doc, Microsoft Word", "url": "/converter", "desc": "Конвертація TXT/MD файлів"},
     {"name": "Генератор документів", "url": "/doc-generator", "desc": "Генерація документів з шаблонів і джерел"},
-    {"name": "Генератор PowerPoint", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
+    {"name": "Генератор PowerPoint резентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
 ]
 
 @app.route('/')

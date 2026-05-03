@@ -12,9 +12,9 @@ from pathlib import Path
 from loguru import logger
 
 
-TASKS_DATA_DIR = '/home/openclaw/mysite/Tasks-data'
-TEMPLATES_DIR = '/home/openclaw/mysite/Tasks-data/Templates'
-SOURCES_DIR = '/home/openclaw/mysite/Tasks-data/Sources'
+TASKS_DATA_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data'
+TEMPLATES_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data/Templates'
+SOURCES_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data/Sources'
 
 
 def ensure_directories():

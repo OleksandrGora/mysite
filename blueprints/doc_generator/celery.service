@@ -7,7 +7,7 @@ User=openclaw
 Group=openclaw
 WorkingDirectory=/home/openclaw/mysite
 EnvironmentFile=/home/openclaw/mysite/.env
-ExecStart=/home/openclaw/mysite/venv/bin/celery -A celery_worker worker --loglevel=info
+ExecStart=/home/openclaw/mysite/venv/bin/celery -A blueprints.doc_generator.celery_worker worker --loglevel=info
 Restart=always
 RestartSec=5
 

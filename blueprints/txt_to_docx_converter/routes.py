@@ -305,11 +305,11 @@ def converter():
         f = request.files.get('file')
 
         if not text_input and not f:
-            return render_template('converter.html', error='Please enter text or select a file')
+            return render_template('txt_to_docx_converter/index-converter.html', error='Please enter text or select a file')
 
         if text_input and f and f.filename:
             return render_template(
-                'converter.html',
+                'txt_to_docx_converter/index-converter.html',
                 error='Both text and file provided. Text input will be used for conversion.',
                 warnings=[],
                 filename=f.filename
@@ -326,7 +326,7 @@ def converter():
                     f.seek(0)
                     content = f.read().decode('cp1251')
                 except Exception as e:
-                    return render_template('converter.html', error=f'Failed to read file: {e}')
+                    return render_template('txt_to_docx_converter/index-converter.html', error=f'Failed to read file: {e}')
             filename = f.filename
 
         content = preprocess(content)
@@ -343,7 +343,7 @@ def converter():
             if not success:
                 logger.error("Pandoc failed: %s", error_text)
                 return render_template(
-                    'converter.html',
+                    'txt_to_docx_converter/index-converter.html',
                     error=error_text,
                     warnings=warnings,
                     filename=filename
@@ -396,17 +396,17 @@ def converter():
                     session.clear()
                     return redirect(url_for('login'))
                 return render_template(
-                    'converter.html',
+                    'txt_to_docx_converter/index-converter.html',
                     error=f'Файл конвертовано, але помилка завантаження на Drive: {error_msg}',
                     warnings=warnings,
                     filename=filename
                 )
 
             return render_template(
-                'converter.html',
+                'txt_to_docx_converter/index-converter.html',
                 link=uploaded.get('webViewLink'),
                 warnings=warnings,
                 filename=filename
             )
 
-    return render_template('converter.html')
+    return render_template('txt_to_docx_converter/index-converter.html')

@@ -89,7 +89,7 @@ fix_json_with_llm(raw_text, provider='google') -> tuple[list|None, dict|None]
 
 Вхід: невалідний JSON/текст
 Вихід: валідний масив слайдів + токени
-generate_image_with_llm(...) -> tuple[str|None, dict|None]
+generate_image_with_google(...) -> tuple[str|None, dict|None]
 
 Вхід: description, output_dir, slide_index
 Вихід: шлях до PNG або None + токени

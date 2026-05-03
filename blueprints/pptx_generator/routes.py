@@ -234,7 +234,7 @@ def generate_pptx():
                         if image_provider == 'openai':
                             return idx, *generate_image_with_openai(desc, images_dir, idx)
                         else:
-                            return idx, *generate_image_with_llm(desc, images_dir, idx)
+                            return idx, *generate_image_with_google(desc, images_dir, idx)
 
                     max_workers = OPENAI_IMAGE_MAX_WORKERS if image_provider == 'openai' else GEMINI_IMAGE_MAX_WORKERS
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -450,7 +450,7 @@ def fix_json_with_llm(raw_text, provider='google'):
         return None, None
 
 
-def generate_image_with_llm(description, output_dir, slide_index):
+def generate_image_with_google(description, output_dir, slide_index):
     """
     Generate image using Gemini AI based on description.
     """

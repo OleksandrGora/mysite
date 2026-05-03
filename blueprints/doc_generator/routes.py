@@ -43,6 +43,61 @@ from .task_manager import (
     TASKS_DATA_DIR, TEMPLATES_DIR, SOURCES_DIR
 )
 
+# --- Debug Log Configuration ---
+DEBUG_LOG_FILE = os.path.join(os.path.dirname(__file__), 'debug.log')
+
+def get_debug_log_path() -> str:
+    """Get path to debug log file."""
+    return DEBUG_LOG_FILE
+
+def read_debug_log() -> str:
+    """Read entire debug log content."""
+    if not os.path.exists(DEBUG_LOG_FILE):
+        return ''
+    try:
+        with open(DEBUG_LOG_FILE, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Failed to read debug log: {e}")
+        return ''
+
+def append_debug_log(message: str) -> bool:
+    """Append a line to debug log with timestamp. Keep only last 100 entries."""
+    try:
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        lines = []
+        
+        # Read existing content
+        if os.path.exists(DEBUG_LOG_FILE):
+            with open(DEBUG_LOG_FILE, 'r', encoding='utf-8') as f:
+                lines = f.read().splitlines()
+        
+        # Add new line
+        lines.append(f"[{timestamp}] {message}")
+        
+        # Keep only last 100 entries
+        if len(lines) > 100:
+            lines = lines[-100:]
+        
+        # Write back
+        with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to append to debug log: {e}")
+        return False
+
+def clear_debug_log() -> bool:
+    """Clear the debug log file."""
+    try:
+        with open(DEBUG_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write('')
+        return True
+    except Exception as e:
+        logger.error(f"Failed to clear debug log: {e}")
+        return False
+
 # --- Authentication Decorator ---
 
 def login_required(f):
@@ -432,6 +487,48 @@ def upload_file_unique():
 
 
 # ============================================================================
+# DEBUG LOG API
+# ============================================================================
+
+@doc_generator_bp.route('/api/debug-log', methods=['GET'])
+@login_required
+def get_debug_log():
+    """Get debug log content."""
+    content = read_debug_log()
+    return jsonify({'content': content})
+
+
+@doc_generator_bp.route('/api/debug-log', methods=['POST'])
+@login_required
+def add_debug_log():
+    """Append a line to debug log."""
+    data = request.get_json()
+    if not data or 'message' not in data:
+        return jsonify({'error': 'Message is required'}), 400
+    
+    message = data.get('message', '')
+    if not message.strip():
+        return jsonify({'error': 'Message cannot be empty'}), 400
+    
+    success = append_debug_log(message)
+    if success:
+        return jsonify({'status': 'success'})
+    else:
+        return jsonify({'error': 'Failed to append to log'}), 500
+
+
+@doc_generator_bp.route('/api/debug-log', methods=['DELETE'])
+@login_required
+def delete_debug_log():
+    """Clear the debug log."""
+    success = clear_debug_log()
+    if success:
+        return jsonify({'status': 'success', 'message': 'Debug log cleared'})
+    else:
+        return jsonify({'error': 'Failed to clear log'}), 500
+
+
+# ============================================================================
 # CELERY TASKS - New Architecture
 # ============================================================================
 
@@ -444,6 +541,9 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     
     logger.info(f"[ANALYZE] Starting analysis for task {task_id}")
     logger.info(f"[ANALYZE] Folder path: {folder_path}")
+    
+    # Write to debug log for UI visibility
+    append_debug_log(f"[CELERY] Аналіз запущено для завдання {task_id}")
     
     try:
         update_task_status(folder_path, 'analyzing')
@@ -524,16 +624,19 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         # Save analysis
         logger.info(f"[ANALYZE] Saving analysis result...")
+        append_debug_log(f"[CELERY] Збереження результату аналізу завдання {task_id}")
         save_analysis_result(folder_path, analysis_text)
         update_task_status(folder_path, 'analysis_completed')
         
         logger.info(f"[ANALYZE] Completed for task {task_id}")
+        append_debug_log(f"[CELERY] Аналіз завершено для завдання {task_id}")
         return {'status': 'success', 'task_id': task_id}
         
     except Exception as e:
         import traceback
         logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
         logger.error(f"[ANALYZE] Traceback: {traceback.format_exc()}")
+        append_debug_log(f"[CELERY] ПОМИЛКА аналізу завдання {task_id}: {e}")
         update_task_status(folder_path, 'failed', str(e))
         raise self.retry(exc=e, countdown=60)
 
@@ -544,6 +647,7 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
     from loguru import logger
     
     logger.info(f"[GENERATE] Starting generation for task {task_id}")
+    append_debug_log(f"[CELERY] Початок генерації документа для завдання {task_id}")
     
     try:
         update_task_status(folder_path, 'generating')
@@ -611,9 +715,11 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         update_task_status(folder_path, 'completed')
         
         logger.info(f"[GENERATE] Completed for task {task_id}")
+        append_debug_log(f"[CELERY] Генерація документа завершена для завдання {task_id}")
         return {'status': 'success', 'task_id': task_id}
         
     except Exception as e:
         logger.error(f"[GENERATE] Failed for task {task_id}: {e}")
+        append_debug_log(f"[CELERY] ПОМИЛКА генерації документа для завдання {task_id}: {e}")
         update_task_status(folder_path, 'failed', str(e))
         raise self.retry(exc=e, countdown=60)

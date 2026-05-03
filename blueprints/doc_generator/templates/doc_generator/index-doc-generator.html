@@ -346,8 +346,8 @@
     <!-- Debug Log -->
     <div class="debug-section">
         <h2>Журнал подій</h2>
-        <div id="debug-log" class="debug-log">Готовий до роботи...</div>
-        <button class="btn-secondary" onclick="clearDebugLog()" style="margin-top: 10px;">Очистити</button>
+        <div id="debug-log" class="debug-log"></div>
+        <button id="clear-debug-btn" class="btn-secondary" onclick="clearDebugLog()" style="margin-top: 10px;">Очистити</button>
     </div>
     
     <!-- Task Modal -->
@@ -437,20 +437,100 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadTasks();
             loadAvailableFiles();
+            loadDebugLog(); // Load debug log on page load
             setInterval(loadTasks, 5000); // Refresh every 5 seconds
+            setInterval(loadDebugLog, 2000); // Refresh debug log every 2 seconds
         });
         
         // Debug logging
-        function log(message, type = 'info') {
+        let debugLogContent = '';
+        let isSavingLog = false;
+        
+        async function loadDebugLog() {
+            try {
+                const response = await fetch(`${API_BASE}/api/debug-log`);
+                if (!response.ok) return;
+                const data = await response.json();
+                const newContent = data.content || '';
+                
+                // Only update if content changed
+                if (newContent !== debugLogContent) {
+                    debugLogContent = newContent;
+                    const debugLog = document.getElementById('debug-log');
+                    
+                    if (!newContent.trim()) {
+                        debugLog.innerHTML = '<div class="info">Готовий до роботи...</div>';
+                    } else {
+                        // Parse and format log lines
+                        const lines = newContent.split('\n').filter(line => line.trim());
+                        debugLog.innerHTML = lines.map(line => {
+                            // Determine type based on content
+                            let type = 'info';
+                            if (line.toLowerCase().includes('error') || line.toLowerCase().includes('помилка')) {
+                                type = 'error';
+                            } else if (line.toLowerCase().includes('success') || line.toLowerCase().includes('готово') || line.toLowerCase().includes('completed')) {
+                                type = 'success';
+                            }
+                            return `<div class="${type}">${escapeHtml(line)}</div>`;
+                        }).join('');
+                    }
+                    debugLog.scrollTop = debugLog.scrollHeight;
+                }
+            } catch (e) {
+                console.error('Failed to load debug log:', e);
+            }
+        }
+        
+        async function log(message, type = 'info') {
+            // Add to UI immediately
             const debugLog = document.getElementById('debug-log');
             const timestamp = new Date().toLocaleTimeString();
             const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
-            debugLog.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            
+            // Remove "ready" message if present
+            if (debugLog.innerHTML.includes('Готовий до роботи')) {
+                debugLog.innerHTML = '';
+            }
+            
+            debugLog.innerHTML += `<div class="${className}">[${timestamp}] ${escapeHtml(message)}</div>`;
             debugLog.scrollTop = debugLog.scrollHeight;
+            
+            // Save to server (throttle to avoid too many requests)
+            if (!isSavingLog) {
+                isSavingLog = true;
+                setTimeout(async () => {
+                    try {
+                        await fetch(`${API_BASE}/api/debug-log`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: `[${type.toUpperCase()}] ${message}` })
+                        });
+                    } catch (e) {
+                        console.error('Failed to save debug log:', e);
+                    }
+                    isSavingLog = false;
+                }, 100);
+            }
         }
         
-        function clearDebugLog() {
-            document.getElementById('debug-log').innerHTML = 'Журнал очищено...';
+        async function clearDebugLog() {
+            try {
+                const response = await fetch(`${API_BASE}/api/debug-log`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    document.getElementById('debug-log').innerHTML = '<div class="info">Журнал очищено...</div>';
+                    debugLogContent = '';
+                }
+            } catch (e) {
+                console.error('Failed to clear debug log:', e);
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         // Toast notifications

@@ -626,7 +626,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         logger.info(f"[ANALYZE] Saving analysis result...")
         append_debug_log(f"[CELERY] Збереження результату аналізу завдання {task_id}")
         save_analysis_result(folder_path, analysis_text)
-        update_task_status(folder_path, 'analysis_completed')
+        update_task_status(folder_path, 'idle')
         
         logger.info(f"[ANALYZE] Completed for task {task_id}")
         append_debug_log(f"[CELERY] Аналіз завершено для завдання {task_id}")
@@ -636,8 +636,29 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         import traceback
         logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
         logger.error(f"[ANALYZE] Traceback: {traceback.format_exc()}")
-        append_debug_log(f"[CELERY] ПОМИЛКА аналізу завдання {task_id}: {e}")
-        update_task_status(folder_path, 'failed', str(e))
+        
+        # Extract clean error message from Gemini API errors
+        error_msg = str(e)
+        if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
+            # Extract the actual message from Gemini error format
+            try:
+                import re
+                match = re.search(r"'message': '([^']+)'", error_msg)
+                if match:
+                    error_msg = match.group(1)
+            except:
+                pass  # Fallback to original error if regex fails
+        
+        append_debug_log(f"[CELERY] ПОМИЛКА аналізу завдання {task_id}: '{error_msg}'")
+        
+        # Check if retry is possible
+        if self.request.retries < self.max_retries:
+            next_retry = self.request.retries + 1
+            append_debug_log(f"[CELERY] Буде запущена {next_retry} спроба аналізу через 60 секунд")
+        
+        # Only mark as failed if this is the final retry attempt
+        if self.request.retries >= self.max_retries:
+            update_task_status(folder_path, 'failed', error_msg)
         raise self.retry(exc=e, countdown=60)
 
 
@@ -720,6 +741,26 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         
     except Exception as e:
         logger.error(f"[GENERATE] Failed for task {task_id}: {e}")
-        append_debug_log(f"[CELERY] ПОМИЛКА генерації документа для завдання {task_id}: {e}")
-        update_task_status(folder_path, 'failed', str(e))
+        
+        # Extract clean error message from Gemini API errors
+        error_msg = str(e)
+        if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
+            try:
+                import re
+                match = re.search(r"'message': '([^']+)'", error_msg)
+                if match:
+                    error_msg = match.group(1)
+            except:
+                pass
+        
+        append_debug_log(f"[CELERY] ПОМИЛКА генерації документа для завдання {task_id}: '{error_msg}'")
+        
+        # Check if retry is possible
+        if self.request.retries < self.max_retries:
+            next_retry = self.request.retries + 1
+            append_debug_log(f"[CELERY] Буде запущена {next_retry} спроба генерації через 60 секунд")
+        
+        # Only mark as failed if this is the final retry attempt
+        if self.request.retries >= self.max_retries:
+            update_task_status(folder_path, 'failed', error_msg)
         raise self.retry(exc=e, countdown=60)

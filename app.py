@@ -73,7 +73,7 @@ google = oauth.register(
 SERVICES = [
     {"name": "Конвертер LaTeX → Google Doc, Microsoft Word", "url": "/converter", "desc": "Конвертація TXT/MD файлів"},
     {"name": "Генератор документів", "url": "/doc-generator", "desc": "Генерація документів з шаблонів і джерел"},
-    {"name": "Генератор PowerPoint резентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
+    {"name": "Генератор PowerPoint презентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
 ]
 
 @app.route('/')

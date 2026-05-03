@@ -273,7 +273,8 @@
             border-radius: 4px;
             font-family: 'Consolas', 'Monaco', monospace;
             font-size: 0.85em;
-            max-height: 300px;
+            line-height: 1.4;
+            height: 14em; /* Approximately 10 lines */
             overflow-y: auto;
             white-space: pre-wrap;
         }
@@ -305,6 +306,23 @@
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+        
+        /* Button hover spinner when disabled (analysis in progress) */
+        .btn-primary:disabled:hover::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            margin-left: 10px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        .btn-primary:disabled {
+            position: relative;
         }
         
         /* Toast Notifications */
@@ -659,11 +677,11 @@
             const title = document.getElementById('modal-title');
             const deleteBtn = document.getElementById('btn-delete');
             
-            log(`openTaskModal called with taskId: ${taskId}`, 'info');
+            // log(`openTaskModal called with taskId: ${taskId}`, 'info');
             
             if (taskId) {
                 // Edit existing task - load full details from API
-                log(`Завантаження завдання ${taskId}...`, 'info');
+                // log(`Завантаження завдання ${taskId}...`, 'info');
                 log(`API URL: ${API_BASE}/api/tasks/${taskId}`, 'info');
                 
                 try {
@@ -700,6 +718,24 @@
                     }
                     
                     deleteBtn.style.display = 'inline-block';
+                    
+                    // Check if task is currently running (analyzing/generating) and disable buttons
+                    const isAnalyzing = task.status === 'analyzing';
+                    const isGenerating = task.status === 'generating';
+                    
+                    if (isAnalyzing || isGenerating) {
+                        const analyzeBtn = document.getElementById('btn-analyze');
+                        const generateBtn = document.getElementById('btn-generate');
+                        
+                        if (analyzeBtn) {
+                            analyzeBtn.disabled = true;
+                            analyzeBtn.textContent = isAnalyzing ? 'Аналізується...' : 'Аналізувати шаблон';
+                        }
+                        if (generateBtn) {
+                            generateBtn.disabled = true;
+                            generateBtn.textContent = isGenerating ? 'Створюється...' : 'Створити документ';
+                        }
+                    }
                 } catch (e) {
                     showToast('Помилка завантаження завдання', 'error');
                     log('Помилка: ' + e.message, 'error');
@@ -869,7 +905,7 @@
                 const result = await response.json();
                 if (result.error) throw new Error(result.error);
                 
-                log(`Аналіз запущено для завдання ${taskId}`, 'success');
+                // Note: Celery will log the start message
                 showToast('Аналіз запущено', 'success');
                 
                 // Poll for completion
@@ -924,7 +960,7 @@
                         clearInterval(interval);
                         document.getElementById('btn-analyze').disabled = false;
                         document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
-                        log('Аналіз не вдався: ' + task.error_message, 'error');
+                        // Note: Celery already logs the error
                         showToast('Аналіз не вдався', 'error');
                     }
                 } catch (e) {
@@ -1000,7 +1036,7 @@
                 const result = await response.json();
                 if (result.error) throw new Error(result.error);
                 
-                log(`Генерацію запущено для завдання ${taskId}`, 'success');
+                // Note: Celery will log the start message
                 showToast('Створення документа запущено', 'success');
                 
                 // Poll for completion
@@ -1033,7 +1069,7 @@
                         clearInterval(interval);
                         document.getElementById('btn-generate').disabled = false;
                         document.getElementById('btn-generate').textContent = 'Створити документ';
-                        log('Помилка створення: ' + task.error_message, 'error');
+                        // Note: Celery already logs the error
                         showToast('Помилка створення документа', 'error');
                     }
                 } catch (e) {

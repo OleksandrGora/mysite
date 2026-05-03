@@ -176,6 +176,36 @@
             color: #666;
             font-size: 1em;
         }
+        
+        .input-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .btn-copy-prompt {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 6px 12px;
+            border: 1px solid #1976d2;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-copy-prompt:hover {
+            background: #1976d2;
+            color: white;
+        }
+        .btn-copy-prompt.copied {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-color: #388e3c;
+        }
         .example-code {
             background: #263238;
             color: #aed581;
@@ -286,7 +316,16 @@
     
     <div class="container" style="grid-template-columns: 1fr;">
         <div class="panel">
-            <h2>Введіть текст або JSON</h2>
+            <div class="input-header">
+                <h2>Введіть текст або JSON</h2>
+                <button class="btn-copy-prompt" onclick="copyPrompt()" title="Копіює промпт у буфер обміну. Вставити у NotebookLM або ШІ чат, додати документи або вказати тему, вказати кількість слайдів.">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    Копіювати промпт
+                </button>
+            </div>
             <div class="form-group">
                 <textarea id="json-input" placeholder="Введіть текст для презентації або JSON масив об'єктів з полями title, body, image_description"></textarea>
             </div>
@@ -542,6 +581,52 @@
                 isGenerating = false;
                 btn.disabled = false;
                 btn.innerHTML = '<span>+</span> Створити презентацію';
+            }
+        }
+
+        const PROMPT_TEMPLATE = `Створи дані для PowerPoint презентації у форматі JSON масиву об'єктів.
+
+Тема презентації: {вкажи тему}
+Кількість слайдів: {вкажи кількість}
+
+Структура кожного слайду (обов'язково дотримуватися):
+- slide_number (integer) — номер слайду за порядком (1, 2, 3, ...)
+- title (string) — назва слайду, коротка та інформативна
+- body (string) — основний текст слайду (2-4 речення з ключовою інформацією)
+- image_description (string) — детальний опис ілюстрації для генерації ШІ (вказати: предмет, колірна гама, композиція, настрій)
+
+Вимоги до JSON:
+- Поверни ТІЛЬКИ валідний JSON масив, без markdown блоків (без \`\`\`)
+- Кожен об'єкт слайду обов'язково має містити поля slide_number, title та body
+- Поле image_description заповнюй для кожного слайду, де логічно потрібна ілюстрація
+- Текст має бути українською мовою
+- slide_number має йти послідовно від 1 до N без пропусків
+- Опис зображення має бути детальним (15-30 слів), вказувати стиль: схема/інфографіка/фотореалістичне/ілюстрація/діаграма
+
+Приклад структури одного слайду:
+{
+  "slide_number": 1,
+  "title": "Назва слайду",
+  "body": "Основний текст слайду з поясненням ключової ідеї. Додатковий контекст або факти.",
+  "image_description": "Стиль: інфографіка. Схема процесу зі стрілками, блакитні та зелені кольори, мінімалістичний дизайн, білий фон, плоскі іконки"
+}
+
+Поверни готовий JSON масив для всіх слайдів:`;
+
+        async function copyPrompt() {
+            try {
+                await navigator.clipboard.writeText(PROMPT_TEMPLATE);
+                const btn = document.querySelector('.btn-copy-prompt');
+                const originalHTML = btn.innerHTML;
+                btn.classList.add('copied');
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Скопійовано!';
+                showToast('Промпт скопійовано в буфер обміну', 'success');
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = originalHTML;
+                }, 2000);
+            } catch (err) {
+                showToast('Не вдалося скопіювати промпт', 'error');
             }
         }
 

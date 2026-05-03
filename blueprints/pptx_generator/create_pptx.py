@@ -8,6 +8,7 @@ import os
 import random
 import math
 
+# 4. Створення презентації
 def create_presentation(filename, slides_data, images_dir=None):
     """
     Створення PowerPoint презентації з JSON даних.
@@ -318,7 +319,7 @@ def _add_image_placeholder(slide, ph_x, ph_y, ph_width, ph_height, label_text=''
     p.font.italic = True
     p.alignment = 1  # Center
 
-
+# Блокування фігур від редагування через XML, не працює
 def _lock_shape(shape):
     """Заблокувати фігуру від редагування та переміщення через XML."""
     from pptx.oxml.ns import qn

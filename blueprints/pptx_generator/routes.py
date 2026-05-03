@@ -133,6 +133,7 @@ def generate_pptx():
     Expected JSON format:
     [
         {
+            "slide_number": 1,
             "title": "Назва слайду",
             "body": "Основний текст слайду",
             "image_description": "Опис ілюстрації для генерації (опціонально)"
@@ -150,6 +151,12 @@ def generate_pptx():
     generate_images_param = request.args.get('generate_images', 'true').lower()
     generate_images = generate_images_param in ['true', '1', 'yes']
 
+    # 1. Парсить JSON (або викликає fix_json_with_llm() при помилці)
+    # Валідує структуру слайдів
+    # Генерує зображення паралельно через ThreadPoolExecutor
+    # Створює тимчасову директорію
+    # Викликає create_presentation() з create_pptx.py
+    # Повертає файл у форматі base64 через SSE події
     def generate():
         try:
             if not raw_data:
@@ -322,7 +329,7 @@ def generate_pptx():
         }
     )
 
-
+# 2. Повертає розпарсений JSON масив або None
 def fix_json_with_llm(raw_text, provider='google'):
     """
     Use LLM to fix and format JSON structure for slides.
@@ -449,7 +456,7 @@ def fix_json_with_llm(raw_text, provider='google'):
         logger.error(f"Failed to fix JSON with LLM ({provider}): {type(e).__name__}: {e}\n{traceback.format_exc()}")
         return None, None
 
-
+# 3. Генерація зображень
 def generate_image_with_google(description, output_dir, slide_index):
     """
     Generate image using Gemini AI based on description.
@@ -538,7 +545,7 @@ Requirements:
         logger.error(f"Image generation failed: {e}")
         return None, None
 
-
+# 3.1 Генерація зображень
 def generate_image_with_openai(description, output_dir, slide_index):
     """
     Generate image using OpenAI GPT Image 1 Mini based on description.
@@ -613,7 +620,7 @@ Requirements:
         logger.error(f"OpenAI image generation failed: {e}", exc_info=True)
         return None, None
 
-
+# Валідує JSON без генерації, Може викликати fix_json_with_llm() при невалідному JSON
 @pptx_generator_bp.route('/api/validate', methods=['POST'])
 @login_required
 def validate_json():

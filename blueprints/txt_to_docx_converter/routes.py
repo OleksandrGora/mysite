@@ -63,7 +63,7 @@ def is_token_valid():
 
     return True
 
-
+## 4. Google Drive API клієнт
 def get_drive_service():
     t = session['token']
     creds = Credentials(
@@ -84,7 +84,7 @@ def get_drive_service():
             raise RuntimeError("TOKEN_EXPIRED")
     return build('drive', 'v3', credentials=creds)
 
-
+## 5. Створення або отримання папки 'Openclaw' в Drive
 def get_or_create_folder(drive, folder_name):
     try:
         results = drive.files().list(
@@ -106,7 +106,7 @@ def get_or_create_folder(drive, folder_name):
             raise RuntimeError("TOKEN_EXPIRED")
         raise
 
-
+## 1. Очищення тексту, заміна LaTeX-команд
 def preprocess(text):
     for old, new in REPLACEMENTS:
         text = text.replace(old, new)
@@ -159,7 +159,7 @@ def parse_pandoc_warnings(stderr_text):
             warnings.append(line)
     return warnings
 
-
+## 2. Виклик pandoc для конвертації MD → DOCX
 def run_pandoc(src, dst):
     try:
         result = subprocess.run(
@@ -189,7 +189,7 @@ def run_pandoc(src, dst):
 
     return True, warnings, None
 
-
+## 3. Пост-обробка стилів, таблиць
 def postprocess_docx(path):
     from docx import Document
     from docx.oxml.ns import qn

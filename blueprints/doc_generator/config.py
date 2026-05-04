@@ -14,6 +14,16 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-pro')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
 
+# Available Models (hardcoded list)
+AVAILABLE_MODELS = [
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+]
+
+# Model settings file path
+MODEL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'model_settings.json')
+
 # Generation Settings
 MAX_TOKENS_PER_SECTION = 4000
 MAX_TOKENS_FOR_TABLE = 2000
@@ -96,6 +106,7 @@ FULL_DOCUMENT_GENERATION_PROMPT = """Ти — експерт з написанн
    - **ЗАГОЛОВОК (title):** Залишай оригінальну назву розділу без змін
    - **ОПИС (description_general):** Це інструкція що саме треба написати. Наповни розділ інформацією з джерел відповідно до цього опису
    - **ПРИКЛАД (description_specific):** Це лише приклад формату/стилю. Не копіюй його, використовуй як орієнтир
+   - **ВАЖЛИВО:** Поля description_general та description_specific є лише внутрішніми інструкціями для тебе. Їх текст НЕ повинен з'являтися у фінальному документі — ні дослівно, ні у перефразованому вигляді.
    - Якщо в джерелах немає інформації — напиши "Дані відсутні"
    - Зберігай науковий/діловий стиль
 

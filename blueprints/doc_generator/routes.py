@@ -26,7 +26,7 @@ def log_request_info():
         logger.info(f"[DEBUG] GET request: {request.method} {request.path}")
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
-from .config import ANALYSIS_PROMPT
+from .config import ANALYSIS_PROMPT, AVAILABLE_MODELS, MODEL_SETTINGS_FILE
 try:
     from .old_architecture.cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
 except ImportError:
@@ -96,6 +96,35 @@ def clear_debug_log() -> bool:
         return True
     except Exception as e:
         logger.error(f"Failed to clear debug log: {e}")
+        return False
+
+# --- Model Selection Helpers ---
+
+def get_selected_model() -> str:
+    """Get the currently selected model from settings file."""
+    if os.path.exists(MODEL_SETTINGS_FILE):
+        try:
+            with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                model = settings.get('selected_model')
+                if model in AVAILABLE_MODELS:
+                    return model
+        except Exception as e:
+            logger.error(f"Failed to load model settings: {e}")
+    # Default to first available model
+    return AVAILABLE_MODELS[0] if AVAILABLE_MODELS else 'gemini-2.5-pro'
+
+def save_selected_model(model: str) -> bool:
+    """Save the selected model to settings file."""
+    if model not in AVAILABLE_MODELS:
+        logger.error(f"Invalid model: {model}")
+        return False
+    try:
+        with open(MODEL_SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'selected_model': model}, f)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save model settings: {e}")
         return False
 
 # --- Authentication Decorator ---
@@ -526,6 +555,46 @@ def delete_debug_log():
         return jsonify({'status': 'success', 'message': 'Debug log cleared'})
     else:
         return jsonify({'error': 'Failed to clear log'}), 500
+
+
+# ============================================================================
+# MODEL API
+# ============================================================================
+
+@doc_generator_bp.route('/api/models', methods=['GET'])
+@login_required
+def get_available_models():
+    """Get list of available models."""
+    return jsonify({
+        'models': AVAILABLE_MODELS,
+        'selected': get_selected_model()
+    })
+
+
+@doc_generator_bp.route('/api/models/selected', methods=['GET'])
+@login_required
+def get_current_model():
+    """Get currently selected model."""
+    return jsonify({'model': get_selected_model()})
+
+
+@doc_generator_bp.route('/api/models/selected', methods=['POST'])
+@login_required
+def set_current_model():
+    """Set the selected model."""
+    data = request.get_json()
+    if not data or 'model' not in data:
+        return jsonify({'error': 'Model is required'}), 400
+    
+    model = data.get('model')
+    if model not in AVAILABLE_MODELS:
+        return jsonify({'error': f'Invalid model: {model}'}), 400
+    
+    success = save_selected_model(model)
+    if success:
+        return jsonify({'status': 'success', 'model': model})
+    else:
+        return jsonify({'error': 'Failed to save model selection'}), 500
 
 
 # ============================================================================

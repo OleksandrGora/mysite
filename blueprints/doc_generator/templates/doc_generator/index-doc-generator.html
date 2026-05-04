@@ -25,6 +25,36 @@
             margin-bottom: 20px;
         }
         
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .model-selector label {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .model-selector select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9em;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .model-selector select:hover {
+            border-color: #1976d2;
+        }
+        
         .btn-primary {
             background: #1976d2;
             color: white;
@@ -346,7 +376,17 @@
 </head>
 <body>
     <div class="main-header">
-        <h1>Генератор документів</h1>
+        <div class="header-left">
+            <h1>Генератор документів</h1>
+            <div class="model-selector">
+                <label for="model-select">Модель:</label>
+                <select id="model-select" onchange="saveModelSelection()">
+                    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                    <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                </select>
+            </div>
+        </div>
         <button class="btn-primary" onclick="openTaskModal()">Створити завдання</button>
     </div>
     
@@ -456,9 +496,54 @@
             loadTasks();
             loadAvailableFiles();
             loadDebugLog(); // Load debug log on page load
+            loadModelSelection(); // Load selected model
             setInterval(loadTasks, 5000); // Refresh every 5 seconds
             setInterval(loadDebugLog, 2000); // Refresh debug log every 2 seconds
         });
+        
+        // Model selection
+        async function loadModelSelection() {
+            try {
+                const response = await fetch(`${API_BASE}/api/models`);
+                if (!response.ok) throw new Error('Failed to load models');
+                const data = await response.json();
+                
+                const select = document.getElementById('model-select');
+                select.innerHTML = ''; // Clear existing options
+                
+                data.models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    option.selected = model === data.selected;
+                    select.appendChild(option);
+                });
+                
+                log(`Модель завантажено: ${data.selected}`, 'info');
+            } catch (e) {
+                console.error('Failed to load model selection:', e);
+            }
+        }
+        
+        async function saveModelSelection() {
+            const select = document.getElementById('model-select');
+            const model = select.value;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/models/selected`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: model })
+                });
+                
+                if (!response.ok) throw new Error('Failed to save model');
+                
+                log(`Модель змінено на: ${model}`, 'success');
+            } catch (e) {
+                console.error('Failed to save model selection:', e);
+                showToast('Помилка збереження моделі', 'error');
+            }
+        }
         
         // Debug logging
         let debugLogContent = '';
@@ -682,11 +767,11 @@
             if (taskId) {
                 // Edit existing task - load full details from API
                 // log(`Завантаження завдання ${taskId}...`, 'info');
-                log(`API URL: ${API_BASE}/api/tasks/${taskId}`, 'info');
+                // log(`API URL: ${API_BASE}/api/tasks/${taskId}`, 'info');
                 
                 try {
                     const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
-                    log(`Response status: ${response.status}`, 'info');
+                    // log(`Response status: ${response.status}`, 'info');
                     
                     const task = await response.json();
                     log(`Response data: ${JSON.stringify(task).substring(0, 200)}`, 'info');
@@ -723,10 +808,11 @@
                     const isAnalyzing = task.status === 'analyzing';
                     const isGenerating = task.status === 'generating';
                     
+                    const analyzeBtn = document.getElementById('btn-analyze');
+                    const generateBtn = document.getElementById('btn-generate');
+                    
                     if (isAnalyzing || isGenerating) {
-                        const analyzeBtn = document.getElementById('btn-analyze');
-                        const generateBtn = document.getElementById('btn-generate');
-                        
+                        // Task is running - disable buttons
                         if (analyzeBtn) {
                             analyzeBtn.disabled = true;
                             analyzeBtn.textContent = isAnalyzing ? 'Аналізується...' : 'Аналізувати шаблон';
@@ -734,6 +820,17 @@
                         if (generateBtn) {
                             generateBtn.disabled = true;
                             generateBtn.textContent = isGenerating ? 'Створюється...' : 'Створити документ';
+                        }
+                    } else {
+                        // Task is idle, completed or failed - enable buttons
+                        if (analyzeBtn) {
+                            analyzeBtn.disabled = false;
+                            // Check if analysis was completed (has analysis_content)
+                            analyzeBtn.textContent = task.analysis_content ? 'Аналізувати шаблон (повторно)' : 'Аналізувати шаблон';
+                        }
+                        if (generateBtn) {
+                            generateBtn.disabled = false;
+                            generateBtn.textContent = 'Створити документ';
                         }
                     }
                 } catch (e) {

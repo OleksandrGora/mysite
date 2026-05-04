@@ -33,6 +33,62 @@ else:
     logger.warning("GEMINI_API_KEY not configured")
 
 
+def save_full_document_prompt_response(task_id: str, prompt: str, response: str, task_folder: str = None):
+    """
+    Save full document prompt and response in specific files.
+    
+    Args:
+        task_id: ID of the task
+        prompt: The prompt sent to LLM
+        response: The response from LLM
+        task_folder: Task folder path (if available)
+    """
+    # Determine base directory
+    if task_folder and os.path.exists(task_folder):
+        base_dir = task_folder
+        logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
+    else:
+        # Use temp folder as fallback
+        base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'temp')
+        os.makedirs(base_dir, exist_ok=True)
+        logger.info(f"[DEBUG] Using temp folder as base dir: {base_dir}")
+    
+    # Create ai_responses directory
+    ai_responses_dir = os.path.join(base_dir, 'ai_responses')
+    os.makedirs(ai_responses_dir, exist_ok=True)
+    logger.info(f"[DEBUG] AI responses directory: {ai_responses_dir}")
+    
+    try:
+        # Save prompt file
+        prompt_filename = f"{task_id}+fulldoc-prompt.txt"
+        prompt_path = os.path.join(ai_responses_dir, prompt_filename)
+        
+        with open(prompt_path, 'w', encoding='utf-8') as f:
+            f.write(f"TASK ID: {task_id}\n")
+            f.write(f"TYPE: FULL_DOCUMENT_PROMPT\n")
+            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write("="*50 + "\n")
+            f.write(prompt)
+        
+        # Save response file
+        response_filename = f"{task_id}+fulldoc-response.txt"
+        response_path = os.path.join(ai_responses_dir, response_filename)
+        
+        with open(response_path, 'w', encoding='utf-8') as f:
+            f.write(f"TASK ID: {task_id}\n")
+            f.write(f"TYPE: FULL_DOCUMENT_RESPONSE\n")
+            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write("="*50 + "\n")
+            f.write(response)
+        
+        logger.info(f"Full document prompt saved: {prompt_path}")
+        logger.info(f"Full document response saved: {response_path}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save full document prompt/response: {e}")
+        raise
+
+
 def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None):
     """
     Зберегти AI відповідь в папку завдання для відлагодження.
@@ -257,23 +313,6 @@ def generate_document_full(
         if section.has_text and section.description_general
     )
     
-    # Build structure description for prompt (without general field)
-    structure_lines = []
-    for section in parsed_analysis.sections:
-        prefix = '#' * section.level
-        structure_lines.append(f"{prefix} {section.title}")
-        if section.has_text:
-            if section.description_specific:
-                structure_lines.append(f"  Приклад стилю: {section.description_specific}")
-    
-    for table in parsed_analysis.tables:
-        prefix = '#' * table.level
-        structure_lines.append(f"{prefix} {table.title}")
-        if table.columns:
-            structure_lines.append(f"  Колонки: {', '.join(table.columns)}")
-    
-    structure_text = '\n'.join(structure_lines)
-    
     # Build sources text
     sources_parts = []
     for name, data in sources_data.items():
@@ -286,9 +325,11 @@ def generate_document_full(
     sources_block = '\n'.join(sources_parts) if sources_parts else "(джерела не вказані)"
     
     # Build prompt
+    import json
+    structure_json = json.dumps(structure, ensure_ascii=False, indent=2)
     prompt = FULL_DOCUMENT_GENERATION_PROMPT.format(
         instructions=instructions,
-        structure=structure_text,
+        structure=structure_json,
         sources=sources_block
     )
     
@@ -307,7 +348,7 @@ def generate_document_full(
             # Save prompt before calling AI (for debugging, even if AI fails)
             if attempt == 0:
                 logger.info(f"[DEBUG] Saving prompt before AI call for full_document")
-                save_ai_response(task_id, "full_document_prompt", prompt, "[PENDING - AI call in progress]", task_folder)
+                save_full_document_prompt_response(task_id, prompt, "[PENDING - AI call in progress]", task_folder)
             
             logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
             response = client.models.generate_content(
@@ -324,7 +365,7 @@ def generate_document_full(
             logger.info(f"[DEBUG] Task ID: {task_id}")
             logger.info(f"[DEBUG] Response type: full_document")
             logger.info(f"[DEBUG] Markdown text length: {len(markdown_text)}")
-            save_ai_response(task_id, "full_document", prompt, markdown_text, task_folder)
+            save_full_document_prompt_response(task_id, prompt, markdown_text, task_folder)
             logger.info(f"[DEBUG] AI response saved for full_document")
             
             # Clean up common LLM artifacts

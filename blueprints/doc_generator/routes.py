@@ -433,9 +433,7 @@ def download_task_result(task_id):
     if not task:
         return jsonify({'error': 'Task not found'}), 404
     
-    if task.get('status') != 'completed':
-        return jsonify({'error': 'Task not completed'}), 400
-    
+    # Check if file exists regardless of status (to handle cases where file was created but status not updated)
     final_doc = task.get('final_document')
     folder_path = task.get('folder_path')
     
@@ -783,21 +781,27 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         logger.info(f"[GENERATE] Generation prompt type: {type(generation_prompt)}")
         logger.info(f"[GENERATE] Generation prompt length: {len(generation_prompt)}")
         
-        # Build document directly from analysis structure (like test_table_generator)
-        from .reasoning.document_builder import build_document_from_analysis
+        # Generate document using LLM
+        from .reasoning import generate_document_full
         
-        output_dir = os.path.join(folder_path, 'temp')
-        os.makedirs(output_dir, exist_ok=True)
-        
-        temp_output = build_document_from_analysis(
+        markdown_content = generate_document_full(
             analysis_text=analysis_text,
             sources_data=sources_data,
             task_id=task_id,
+            user_prompt=generation_prompt,
             task_folder=folder_path
         )
         
+        # Convert markdown to DOCX
+        output_dir = os.path.join(folder_path, 'temp')
+        os.makedirs(output_dir, exist_ok=True)
+        temp_docx_path = os.path.join(output_dir, 'temp_result.docx')
+        
+        from .reasoning.markdown_to_docx import convert_markdown_to_docx
+        convert_markdown_to_docx(markdown_content, temp_docx_path)
+        
         # Save final document with proper name
-        save_final_document(folder_path, temp_output)
+        save_final_document(folder_path, temp_docx_path)
         
         # Cleanup temp
         shutil.rmtree(output_dir, ignore_errors=True)

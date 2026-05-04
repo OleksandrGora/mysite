@@ -62,9 +62,10 @@ ANALYSIS_PROMPT = """Проаналізуй структуру документ�
 ТЕКСТ ДОКУМЕНТА:
 {text_content}
 
-Виведи все у JSON форматі.
 Структура JSON:
 "id", "type": "text/table", "title", "level", "words", "description": {{"general", "specific"}}
+
+Виведи все у JSON форматі, без markdown блоків (без \`\`\`)
 
 Відповідь українською."""
 

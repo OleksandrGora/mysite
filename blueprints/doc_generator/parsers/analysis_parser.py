@@ -10,6 +10,7 @@ import re
 from typing import List, Dict, Any, Optional, Union
 from loguru import logger
 from dataclasses import dataclass, asdict
+from ..routes import append_debug_log
 
 
 @dataclass
@@ -63,9 +64,11 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
     try:
         data = json.loads(analysis_text)
         logger.info(f"[DEBUG] JSON parsed successfully, type: {type(data)}")
+        append_debug_log(f"[DEBUG] JSON parsed successfully, type: {type(data)}")
     except json.JSONDecodeError as e:
         logger.error(f"[DEBUG] Failed to parse JSON: {e}")
         logger.error(f"[DEBUG] JSON error position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
+        append_debug_log(f"[DEBUG] Failed to parse JSON: {e}")
         # Fall back to text format
         return parse_text_analysis(analysis_text)
     
@@ -298,13 +301,24 @@ def parse_analysis(analysis_text: str) -> ParsedAnalysis:
     """
     analysis_text = analysis_text.strip()
     
+    # Clean analysis_text from markdown code blocks
+    if analysis_text.startswith('```json'):
+        analysis_text = analysis_text[7:]  # Remove ```json
+    if analysis_text.startswith('```'):
+        analysis_text = analysis_text[3:]   # Remove ```
+    if analysis_text.endswith('```'):
+        analysis_text = analysis_text[:-3] # Remove ```
+    analysis_text = analysis_text.strip()
+
     # Try to detect JSON format
     if analysis_text.startswith('[') or analysis_text.startswith('{'):
         try:
+            append_debug_log(f"[DEBUG] Trying to parse as JSON")
             return parse_json_analysis(analysis_text)
         except (json.JSONDecodeError, ValueError):
             logger.info("Not valid JSON, falling back to text format")
     
+    append_debug_log(f"[DEBUG] Not valid JSON, falling back to text format")
     # Use text format
     return parse_text_analysis(analysis_text)
 

@@ -20,6 +20,7 @@ from ..config import (
     FULL_DOCUMENT_GENERATION_PROMPT
 )
 from loguru import logger
+from ..routes import append_debug_log
 
 # Initialize Gemini client
 client = None
@@ -267,8 +268,10 @@ def generate_document_full(
     
     # Parse analysis text to get structure
     from ..parsers.analysis_parser import parse_analysis
+
     parsed_analysis = parse_analysis(analysis_text)
     
+    append_debug_log(f"[{task_id}] Parsed analysis: {len(parsed_analysis.sections)} sections, {len(parsed_analysis.tables)} tables")
     logger.info(f"[{task_id}] Parsed analysis: {len(parsed_analysis.sections)} sections, {len(parsed_analysis.tables)} tables")
     
     # Log table details for debugging
@@ -318,12 +321,14 @@ def generate_document_full(
     for name, data in sources_data.items():
         text = data.get('text', '')
         # Truncate if too long
-        if len(text) > 8000:
-            text = text[:8000] + "\n... (текст обрізано через обмеження довжини)"
+        if len(text) > 500000:
+            text = text[:500000] + "\n... (текст обрізано через обмеження довжини)"
         sources_parts.append(f"=== {name} ===\n{text}\n")
     
     sources_block = '\n'.join(sources_parts) if sources_parts else "(джерела не вказані)"
     
+    # return "" # for test
+
     # Build prompt
     import json
     structure_json = json.dumps(structure, ensure_ascii=False, indent=2)

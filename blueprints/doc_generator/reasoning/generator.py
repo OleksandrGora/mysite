@@ -223,14 +223,46 @@ def generate_document_full(
         else:
             logger.info(f"[{task_id}] Table {i+1} columns: {', '.join(table.columns)}")
     
-    # Build structure description for prompt
+    # Build structure for JSON (remove general field from description)
+    structure = []
+    for section in parsed_analysis.sections:
+        section_data = {
+            "id": section.index,
+            "type": "text",
+            "title": section.title,
+            "level": section.level
+        }
+        if section.has_text:
+            if section.description_specific:
+                section_data["description"] = {"specific": section.description_specific}
+            if section.word_count_range:
+                section_data["words"] = f"від {section.word_count_range[0]} до {section.word_count_range[1]} слів"
+        structure.append(section_data)
+    
+    for table in parsed_analysis.tables:
+        table_data = {
+            "id": table.index,
+            "type": "table",
+            "title": table.title,
+            "level": table.level
+        }
+        if table.columns:
+            table_data["columns"] = table.columns
+        structure.append(table_data)
+    
+    # Extract instructions from description.general fields
+    instructions = "\n".join(
+        f"- Розділ '{section.title}': {section.description_general}"
+        for section in parsed_analysis.sections
+        if section.has_text and section.description_general
+    )
+    
+    # Build structure description for prompt (without general field)
     structure_lines = []
     for section in parsed_analysis.sections:
         prefix = '#' * section.level
         structure_lines.append(f"{prefix} {section.title}")
         if section.has_text:
-            if section.description_general:
-                structure_lines.append(f"  Опис (що написати): {section.description_general}")
             if section.description_specific:
                 structure_lines.append(f"  Приклад стилю: {section.description_specific}")
     
@@ -255,6 +287,7 @@ def generate_document_full(
     
     # Build prompt
     prompt = FULL_DOCUMENT_GENERATION_PROMPT.format(
+        instructions=instructions,
         structure=structure_text,
         sources=sources_block
     )

@@ -687,7 +687,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         # Save AI response for debugging
         from .reasoning.generator import save_ai_response
-        save_ai_response(task_id, "template_analysis", prompt, analysis_text, folder_path)
+        save_ai_response(task_id, "analysis", prompt, analysis_text, folder_path)
         
         # Save analysis
         logger.info(f"[ANALYZE] Saving analysis result...")

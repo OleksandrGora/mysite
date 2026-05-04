@@ -75,9 +75,11 @@ def convert_markdown_to_docx(markdown_text: str, output_path: str) -> None:
                 table_rows.append(cells)
             continue
         
-        if in_table and (line.strip() == '' or line.strip().startswith('|---')):
-            # Table separator or end of table
-            if len(table_rows) > 1:  # Skip if only header row
+        if in_table and (line.strip() == '' or line.strip().startswith('|---') or 
+                         (line.strip() and not line.strip().startswith('|') and not line.strip().startswith('#') and 
+                          not line.strip().startswith(('- ', '* ', '+ ')) and not re.match(r'^\d+\.\s', line.strip()))):
+            # Table separator, end of table, or non-table content encountered
+            if len(table_rows) >= 1:  # Create table even with just header row
                 # Create table
                 table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
                 table.style = 'Table Grid'
@@ -91,7 +93,13 @@ def convert_markdown_to_docx(markdown_text: str, output_path: str) -> None:
             # Reset table state
             in_table = False
             table_rows = []
-            continue
+            
+            # If this was non-table content, process it
+            if line.strip() and not line.strip().startswith('|---') and not line.strip() == '':
+                # Continue processing this line as regular content
+                pass
+            else:
+                continue
         
         # Handle lists
         if line.strip().startswith(('- ', '* ', '+ ')):
@@ -129,6 +137,20 @@ def convert_markdown_to_docx(markdown_text: str, output_path: str) -> None:
             current_paragraph.add_run(processed_text)
         else:
             current_paragraph = None
+    
+    # Handle any remaining table at end of document
+    if in_table and table_rows:
+        if len(table_rows) >= 1:  # Create table even with just header
+            table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
+            table.style = 'Table Grid'
+            
+            for i, row_data in enumerate(table_rows):
+                for j, cell_text in enumerate(row_data):
+                    if j < len(table_rows[0]):  # Ensure column exists
+                        cell = table.cell(i, j)
+                        cell.text = cell_text or ''
+            
+            logger.info(f"Created table at end of document: {len(table_rows)} rows x {len(table_rows[0])} columns")
     
     # Save document
     doc.save(output_path)

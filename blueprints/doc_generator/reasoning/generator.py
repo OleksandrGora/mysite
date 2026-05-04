@@ -34,60 +34,60 @@ else:
     logger.warning("GEMINI_API_KEY not configured")
 
 
-def save_full_document_prompt_response(task_id: str, prompt: str, response: str, task_folder: str = None):
-    """
-    Save full document prompt and response in specific files.
+# def save_full_document_prompt_response(task_id: str, prompt: str, response: str, task_folder: str = None):
+#     """
+#     Save full document prompt and response in specific files.
     
-    Args:
-        task_id: ID of the task
-        prompt: The prompt sent to LLM
-        response: The response from LLM
-        task_folder: Task folder path (if available)
-    """
-    # Determine base directory
-    if task_folder and os.path.exists(task_folder):
-        base_dir = task_folder
-        logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
-    else:
-        # Use temp folder as fallback
-        base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'temp')
-        os.makedirs(base_dir, exist_ok=True)
-        logger.info(f"[DEBUG] Using temp folder as base dir: {base_dir}")
+#     Args:
+#         task_id: ID of the task
+#         prompt: The prompt sent to LLM
+#         response: The response from LLM
+#         task_folder: Task folder path (if available)
+#     """
+#     # Determine base directory
+#     if task_folder and os.path.exists(task_folder):
+#         base_dir = task_folder
+#         logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
+#     else:
+#         # Use temp folder as fallback
+#         base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'temp')
+#         os.makedirs(base_dir, exist_ok=True)
+#         logger.info(f"[DEBUG] Using temp folder as base dir: {base_dir}")
     
-    # Create ai_responses directory
-    ai_responses_dir = os.path.join(base_dir, 'ai_responses')
-    os.makedirs(ai_responses_dir, exist_ok=True)
-    logger.info(f"[DEBUG] AI responses directory: {ai_responses_dir}")
+#     # Create ai_responses directory
+#     ai_responses_dir = os.path.join(base_dir, 'ai_responses')
+#     os.makedirs(ai_responses_dir, exist_ok=True)
+#     logger.info(f"[DEBUG] AI responses directory: {ai_responses_dir}")
     
-    try:
-        # Save prompt file
-        prompt_filename = f"{task_id}+fulldoc-prompt.txt"
-        prompt_path = os.path.join(ai_responses_dir, prompt_filename)
+#     try:
+#         # Save prompt file
+#         prompt_filename = f"{task_id}+fulldoc-prompt.txt"
+#         prompt_path = os.path.join(ai_responses_dir, prompt_filename)
         
-        with open(prompt_path, 'w', encoding='utf-8') as f:
-            f.write(f"TASK ID: {task_id}\n")
-            f.write(f"TYPE: FULL_DOCUMENT_PROMPT\n")
-            f.write(f"MODEL: {REASONING_MODEL}\n")
-            f.write("="*50 + "\n")
-            f.write(prompt)
+#         with open(prompt_path, 'w', encoding='utf-8') as f:
+#             f.write(f"TASK ID: {task_id}\n")
+#             f.write(f"TYPE: FULL_DOCUMENT_PROMPT\n")
+#             f.write(f"MODEL: {REASONING_MODEL}\n")
+#             f.write("="*50 + "\n")
+#             f.write(prompt)
         
-        # Save response file
-        response_filename = f"{task_id}+fulldoc-response.txt"
-        response_path = os.path.join(ai_responses_dir, response_filename)
+#         # Save response file
+#         response_filename = f"{task_id}+fulldoc-response.txt"
+#         response_path = os.path.join(ai_responses_dir, response_filename)
         
-        with open(response_path, 'w', encoding='utf-8') as f:
-            f.write(f"TASK ID: {task_id}\n")
-            f.write(f"TYPE: FULL_DOCUMENT_RESPONSE\n")
-            f.write(f"MODEL: {REASONING_MODEL}\n")
-            f.write("="*50 + "\n")
-            f.write(response)
+#         with open(response_path, 'w', encoding='utf-8') as f:
+#             f.write(f"TASK ID: {task_id}\n")
+#             f.write(f"TYPE: FULL_DOCUMENT_RESPONSE\n")
+#             f.write(f"MODEL: {REASONING_MODEL}\n")
+#             f.write("="*50 + "\n")
+#             f.write(response)
         
-        logger.info(f"Full document prompt saved: {prompt_path}")
-        logger.info(f"Full document response saved: {response_path}")
+#         logger.info(f"Full document prompt saved: {prompt_path}")
+#         logger.info(f"Full document response saved: {response_path}")
         
-    except Exception as e:
-        logger.error(f"Failed to save full document prompt/response: {e}")
-        raise
+#     except Exception as e:
+#         logger.error(f"Failed to save full document prompt/response: {e}")
+#         raise
 
 
 def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None):
@@ -125,15 +125,15 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
     logger.info(f"[DEBUG] AI responses dir exists: {os.path.exists(ai_responses_dir)}")
     
     # Створити папку для конкретного типу відповіді
-    type_dir = os.path.join(ai_responses_dir, response_type)
-    os.makedirs(type_dir, exist_ok=True)
-    logger.info(f"[DEBUG] Type directory: {type_dir}")
-    logger.info(f"[DEBUG] Type dir exists: {os.path.exists(type_dir)}")
+    # type_dir = os.path.join(ai_responses_dir, response_type)
+    # os.makedirs(type_dir, exist_ok=True)
+    # logger.info(f"[DEBUG] Type directory: {type_dir}")
+    # logger.info(f"[DEBUG] Type dir exists: {os.path.exists(type_dir)}")
     
     try:
         # Зберегти промпт
         prompt_filename = f"{task_id}_{response_type}_prompt.txt"
-        prompt_path = os.path.join(type_dir, prompt_filename)
+        prompt_path = os.path.join(ai_responses_dir, prompt_filename)
         logger.info(f"[DEBUG] Saving prompt to: {prompt_path}")
         
         with open(prompt_path, 'w', encoding='utf-8') as f:
@@ -146,7 +146,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         
         # Зберегти відповідь
         response_filename = f"{task_id}_{response_type}_response.txt"
-        response_path = os.path.join(type_dir, response_filename)
+        response_path = os.path.join(ai_responses_dir, response_filename)
         logger.info(f"[DEBUG] Saving response to: {response_path}")
         
         with open(response_path, 'w', encoding='utf-8') as f:
@@ -353,7 +353,8 @@ def generate_document_full(
             # Save prompt before calling AI (for debugging, even if AI fails)
             if attempt == 0:
                 logger.info(f"[DEBUG] Saving prompt before AI call for full_document")
-                save_full_document_prompt_response(task_id, prompt, "[PENDING - AI call in progress]", task_folder)
+                # save_full_document_prompt_response(task_id, prompt, "[PENDING - AI call in progress]", task_folder)
+                save_ai_response(task_id, "full_doc", prompt, "[PENDING - AI call in progress]", task_folder)
             
             logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
             response = client.models.generate_content(
@@ -370,7 +371,8 @@ def generate_document_full(
             logger.info(f"[DEBUG] Task ID: {task_id}")
             logger.info(f"[DEBUG] Response type: full_document")
             logger.info(f"[DEBUG] Markdown text length: {len(markdown_text)}")
-            save_full_document_prompt_response(task_id, prompt, markdown_text, task_folder)
+            # save_full_document_prompt_response(task_id, prompt, markdown_text, task_folder)
+            save_ai_response(task_id, "full_doc", prompt, markdown_text, task_folder)
             logger.info(f"[DEBUG] AI response saved for full_document")
             
             # Clean up common LLM artifacts
@@ -395,9 +397,9 @@ def generate_document_full(
             is_503_error = '503' in error_str or 'UNAVAILABLE' in error_str
             
             # Save error for debugging
-            logger.info(f"[DEBUG] Saving AI error response for full_document_error")
-            error_response = f"ERROR: {error_str}\n\nATTEMPT: {attempt + 1}/{max_retries}\n\nIS_503: {is_503_error}"
-            save_ai_response(task_id, f"full_document_error_attempt_{attempt + 1}", prompt, error_response, task_folder)
+            # logger.info(f"[DEBUG] Saving AI error response for full_document_error")
+            # error_response = f"ERROR: {error_str}\n\nATTEMPT: {attempt + 1}/{max_retries}\n\nIS_503: {is_503_error}"
+            # save_ai_response(task_id, f"full_document_error_attempt_{attempt + 1}", prompt, error_response, task_folder)
             logger.info(f"[DEBUG] AI error response saved")
             
             if is_503_error and attempt < max_retries - 1:

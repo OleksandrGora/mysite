@@ -387,7 +387,10 @@
                 </select>
             </div>
         </div>
-        <button class="btn-primary" onclick="openTaskModal()">Створити завдання</button>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn-secondary" onclick="goToHome()">На головну</button>
+            <button class="btn-primary" onclick="openTaskModal()">Створити завдання</button>
+        </div>
     </div>
     
     <!-- Tasks List -->
@@ -1205,6 +1208,11 @@
             } catch (e) {
                 showToast('Помилка видалення: ' + e.message, 'error');
             }
+        }
+        
+        // Navigate to home page
+        function goToHome() {
+            window.location.href = '/';
         }
     </script>
 </body>

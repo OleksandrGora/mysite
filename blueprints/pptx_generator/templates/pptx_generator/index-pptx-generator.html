@@ -311,7 +311,7 @@
 <body>
     <div class="main-header">
         <h1>Генератор PowerPoint презентацій</h1>
-        <a href="/" class="btn-secondary">На головну</a>
+        <button type="button" onclick="goToHome()" class="btn-secondary">На головну</button>
     </div>
     
     <div class="container" style="grid-template-columns: 1fr;">
@@ -692,6 +692,11 @@
                 default:
                     console.log('Unknown SSE event:', event);
             }
+        }
+        
+        // Navigate to home page
+        function goToHome() {
+            window.location.href = '/';
         }
     </script>
 </body>

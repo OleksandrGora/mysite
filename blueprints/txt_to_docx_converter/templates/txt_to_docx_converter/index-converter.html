@@ -207,12 +207,25 @@
     textarea:hover {
       border-color: #9ca3af;
     }
+    .btn-secondary {
+      background: #f5f5f5;
+      color: #333;
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover { background: #e0e0e0; }
   </style>
 </head>
 <body>
   <form method="post" enctype="multipart/form-data">
   <div class="container">
-    <h1>Конвертор тексту з формулами у Google Doc та Microsoft Word</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <h1 style="margin-bottom: 0;">Конвертор тексту з формулами у Google Doc та Microsoft Word</h1>
+      <button type="button" onclick="goToHome()" class="btn-secondary">На головну</button>
+    </div>
 
     <div class="text-input-card">
       <label for="text_input">Текст для конвертації:</label>
@@ -257,8 +270,13 @@
     </div>
     {% endif %}
 
-    <a href="/" class="back-link">← Назад</a>
-  </div>
+      </div>
   </form>
+  
+  <script>
+    function goToHome() {
+      window.location.href = '/';
+    }
+  </script>
 </body>
 </html>

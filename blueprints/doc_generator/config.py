@@ -6,8 +6,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Paths
-DATA_DIR = os.getenv('DATA_DIR', '/home/openclaw/mysite/data')
 
 # LLM Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')

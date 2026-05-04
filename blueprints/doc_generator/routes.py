@@ -27,14 +27,6 @@ def log_request_info():
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
 from .config import ANALYSIS_PROMPT, AVAILABLE_MODELS, MODEL_SETTINGS_FILE
-try:
-    from .old_architecture.cleanup import cleanup_old_tasks, cleanup_chroma_collections, get_task_stats, get_disk_usage
-except ImportError:
-    # cleanup module may not exist
-    cleanup_old_tasks = None
-    cleanup_chroma_collections = None
-    get_task_stats = None
-    get_disk_usage = None
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
@@ -188,38 +180,6 @@ def index():
 
 # --- Maintenance Routes ---
 
-@doc_generator_bp.route('/api/stats', methods=['GET'])
-@login_required
-def get_stats():
-    """Get system statistics."""
-    data_dir = current_app.config.get('DATA_DIR', '/home/openclaw/mysite/data')
-    stats = get_task_stats(data_dir)
-    return jsonify(stats)
-
-
-@doc_generator_bp.route('/api/cleanup', methods=['POST'])
-@login_required
-def run_cleanup():
-    """Clean up old tasks."""
-    data = request.get_json() or {}
-    max_age_days = data.get('max_age_days', 7)
-    dry_run = data.get('dry_run', False)
-    
-    data_dir = current_app.config.get('DATA_DIR', '/home/openclaw/mysite/data')
-    
-    logger.info(f"Running cleanup: max_age={max_age_days}d, dry_run={dry_run}")
-    
-    # Clean up tasks
-    task_stats = cleanup_old_tasks(data_dir, max_age_days, dry_run)
-    
-    # Clean up Chroma collections
-    chroma_deleted = cleanup_chroma_collections(data_dir, max_age_days, dry_run)
-    
-    return jsonify({
-        'tasks': task_stats,
-        'chroma_collections_deleted': chroma_deleted,
-        'dry_run': dry_run
-    })
 
 
 # ============================================================================

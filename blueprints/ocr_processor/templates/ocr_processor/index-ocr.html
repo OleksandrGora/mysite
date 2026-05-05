@@ -76,22 +76,40 @@
                                 <input type="file" id="fileInput" accept="image/*" style="display: none;">
                             </div>
                             
-                            <!-- Options -->
+                            <!-- OCR Settings -->
                             <div class="row mt-4">
-                                <div class="col-md-6">
+                                <div class="col-12">
+                                    <h5><i class="fas fa-cog me-2"></i>Налаштування розпізнавання</h5>
+                                </div>
+                                <div class="col-md-4">
                                     <div class="form-check">
                                         <input class="form-check-input" type="checkbox" id="includeHandwritten" checked>
                                         <label class="form-check-label" for="includeHandwritten">
-                                            Розпізнавати рукописний текст
+                                            <i class="fas fa-pen me-1"></i>Рукописний текст
                                         </label>
+                                        <small class="form-text text-muted">EasyOCR з українською підтримкою</small>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <label for="outputFormat" class="form-label">Формат вихідного файлу:</label>
+                                <div class="col-md-4">
+                                    <label for="confidenceThreshold" class="form-label">
+                                        <i class="fas fa-percentage me-1"></i>Поріг довіри:
+                                    </label>
+                                    <div class="input-group">
+                                        <input type="range" class="form-range" id="confidenceThreshold" 
+                                               min="0.1" max="0.9" step="0.1" value="0.3">
+                                        <span class="input-group-text" id="confidenceValue">0.3</span>
+                                    </div>
+                                    <small class="form-text text-muted">Мінімальна впевненість розпізнавання</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="outputFormat" class="form-label">
+                                        <i class="fas fa-file-alt me-1"></i>Формат файлу:
+                                    </label>
                                     <select class="form-select" id="outputFormat">
                                         <option value="txt">TXT</option>
                                         <option value="md">Markdown</option>
                                     </select>
+                                    <small class="form-text text-muted">Формат вихідного файлу</small>
                                 </div>
                             </div>
                             
@@ -145,6 +163,7 @@
                             </div>
                         </div>
                         
+                                                
                         <!-- File List -->
                         <div class="mt-5">
                             <h5><i class="fas fa-list me-2"></i>Попередні результати</h5>
@@ -222,6 +241,14 @@
             `;
         }
 
+        // Confidence threshold slider
+        const confidenceThreshold = document.getElementById('confidenceThreshold');
+        const confidenceValue = document.getElementById('confidenceValue');
+        
+        confidenceThreshold.addEventListener('input', () => {
+            confidenceValue.textContent = confidenceThreshold.value;
+        });
+
         // Process button
         processBtn.addEventListener('click', processImage);
 
@@ -232,6 +259,7 @@
             formData.append('file', selectedFile);
             formData.append('include_handwritten', document.getElementById('includeHandwritten').checked);
             formData.append('output_format', document.getElementById('outputFormat').value);
+            formData.append('confidence_threshold', document.getElementById('confidenceThreshold').value);
 
             // Show progress
             document.getElementById('progressContainer').style.display = 'block';

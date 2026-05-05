@@ -25,15 +25,39 @@ class OCREngine:
     def _init_easyocr(self):
         """Initialize EasyOCR reader for handwritten text"""
         try:
-            self.easyocr_reader = easyocr.Reader(['uk', 'en'])
-            logger.info("EasyOCR reader initialized successfully")
+            self.easyocr_reader = easyocr.Reader(['uk'], gpu=False)
+            logger.info("EasyOCR reader initialized successfully (GPU disabled for slow servers)")
         except Exception as e:
             logger.error(f"Failed to initialize EasyOCR: {e}")
             self.easyocr_reader = None
     
+    def light_preprocess(self, gray_image):
+        """
+        Light preprocessing that preserves text quality
+        
+        Args:
+            gray_image: grayscale numpy array
+            
+        Returns:
+            processed grayscale image
+        """
+        try:
+            # Light contrast enhancement
+            clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8,8))
+            enhanced = clahe.apply(gray_image)
+            
+            # Light denoising
+            denoised = cv2.bilateralFilter(enhanced, 5, 50, 50)
+            
+            return denoised
+            
+        except Exception as e:
+            logger.error(f"Light preprocessing failed: {e}")
+            return gray_image
+    
     def preprocess_image(self, image_path):
         """
-        Preprocess image for better OCR results
+        Preprocess image for better OCR results with conservative approach
         
         Args:
             image_path: path to input image
@@ -50,30 +74,40 @@ class OCREngine:
             # Convert to grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             
-            # Apply thresholding to get binary image
-            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            # Conservative preprocessing for better quality
+            # Only scale if image is small
+            height, width = gray.shape
+            if width < 1000:  # Only scale very small images
+                scale = 2.0
+                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
             
-            # Noise removal
-            denoised = cv2.medianBlur(binary, 3)
+            # Light noise removal
+            gray = cv2.medianBlur(gray, 3)
             
-            # Dilation for better text detection
-            kernel = np.ones((2, 2), np.uint8)
-            dilated = cv2.dilate(denoised, kernel, iterations=1)
+            # Contrast enhancement instead of aggressive sharpening
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            gray = clahe.apply(gray)
             
-            return dilated
+            # Simple thresholding instead of adaptive (preserves text better)
+            _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            return thresh
             
         except Exception as e:
             logger.error(f"Image preprocessing failed: {e}")
-            # Return original image if preprocessing fails
-            return cv2.imread(image_path)
+            # Return original grayscale image if preprocessing fails
+            img = cv2.imread(image_path)
+            if img is not None:
+                return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            return None
     
     def extract_printed_text(self, image_path, language='ukr'):
         """
-        Extract printed text using Tesseract OCR
+        Extract printed text using Tesseract OCR with multiple configurations
 
         Args:
             image_path: path to image file
-            language: language code for OCR ('ukr', 'rus', 'eng')
+            language: language code for OCR ('ukr')
 
         Returns:
             extracted text as string
@@ -81,17 +115,47 @@ class OCREngine:
         try:
             logger.info(f"[OCR_ENGINE] Starting printed text extraction (lang={language})")
 
-            # Preprocess image
-            processed_img = self.preprocess_image(image_path)
-
-            # Configure Tesseract for better results
-            custom_config = r'--oem 3 --psm 6 -l ' + language
-
-            # Extract text
-            text = pytesseract.image_to_string(processed_img, config=custom_config)
-
-            logger.info(f"[OCR_ENGINE] Printed text ({language}): {len(text.strip())} chars")
-            return text.strip()
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Cannot read image: {image_path}")
+            
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            
+            # Try multiple configurations and pick the best result
+            configs = [
+                r'--oem 3 --psm 3 -l ' + language,  # Fully automatic
+                r'--oem 3 --psm 6 -l ' + language,  # Single uniform block
+                r'--oem 1 --psm 3 -l ' + language,  # LSTM only
+                r'--oem 3 --psm 11 -l ' + language, # Sparse text
+            ]
+            
+            best_text = ""
+            best_length = 0
+            
+            for i, config in enumerate(configs):
+                try:
+                    if i == 0:
+                        # First try with original grayscale
+                        text = pytesseract.image_to_string(gray, config=config)
+                    else:
+                        # Try with light preprocessing for other configs
+                        processed = self.light_preprocess(gray)
+                        text = pytesseract.image_to_string(processed, config=config)
+                    
+                    # Quality check: count meaningful characters
+                    meaningful_chars = len([c for c in text if c.isalnum() or c.isspace()])
+                    
+                    if meaningful_chars > best_length:
+                        best_text = text
+                        best_length = meaningful_chars
+                        logger.info(f"[OCR_ENGINE] Config {i+1}: {meaningful_chars} meaningful chars")
+                        
+                except Exception as e:
+                    logger.warning(f"[OCR_ENGINE] Config {i+1} failed: {e}")
+                    continue
+            
+            logger.info(f"[OCR_ENGINE] Printed text ({language}): {len(best_text.strip())} chars")
+            return best_text.strip()
 
         except Exception as e:
             logger.error(f"[OCR_ENGINE] Printed text extraction failed: {e}")
@@ -221,8 +285,8 @@ class OCREngine:
             processing_logs.append(f"[OCR_ENGINE] Starting extraction for {image_path}")
             processing_logs.append(f"[OCR_ENGINE] Handwritten enabled: {include_handwritten}, threshold: {confidence_threshold}")
 
-            # Try multiple languages for printed text
-            languages = ['ukr', 'rus', 'eng']
+            # Try multiple languages for printed text - prioritize Ukrainian
+            languages = ['ukr']
             printed_text = ""
             best_lang = ""
 

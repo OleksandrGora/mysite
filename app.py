@@ -43,11 +43,11 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable static file caching
 app.register_blueprint(converter_bp)
 app.register_blueprint(doc_generator_bp)
 app.register_blueprint(pptx_generator_bp)
-app.register_blueprint(ocr_processor_bp, url_prefix='/ocr-processor')
+app.register_blueprint(ocr_processor_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'temporary_secret_key_for_debug')
 
 logger.info("=== APP STARTUP ===")
-logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor (prefix=/ocr-processor)")
+logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor")
 logger.info(f"Secret key set: {bool(app.secret_key)}")
 
 # Celery and data configuration

@@ -1,0 +1,9 @@
+# OCR Text Recognition Dependencies
+# Core OCR libraries
+pytesseract>=0.3.13
+easyocr>=1.7.0
+opencv-python>=4.8.0
+Pillow>=9.0.0
+
+# Image processing
+numpy>=1.20.0

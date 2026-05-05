@@ -173,62 +173,62 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         raise
 
 
-def load_ai_response(task_id: str, response_type: str, task_folder: str = None) -> Optional[str]:
-    """
-    Завантажити збережену AI відповідь для відлагодження.
+# def load_ai_response(task_id: str, response_type: str, task_folder: str = None) -> Optional[str]:
+#     """
+#     Завантажити збережену AI відповідь для відлагодження.
     
-    Args:
-        task_id: ID завдання
-        response_type: Тип відповіді (section, table, full_document)
-        task_folder: Шлях до папки завдання (якщо є)
+#     Args:
+#         task_id: ID завдання
+#         response_type: Тип відповіді (section, table, full_document)
+#         task_folder: Шлях до папки завдання (якщо є)
         
-    Returns:
-        Збережена відповідь або None
-    """
-    # Debug info: input parameters
-    logger.info(f"[DEBUG] Loading AI response for task: {task_id}")
-    logger.info(f"[DEBUG] Response type: {response_type}")
-    logger.info(f"[DEBUG] Task folder: {task_folder}")
+#     Returns:
+#         Збережена відповідь або None
+#     """
+#     # Debug info: input parameters
+#     logger.info(f"[DEBUG] Loading AI response for task: {task_id}")
+#     logger.info(f"[DEBUG] Response type: {response_type}")
+#     logger.info(f"[DEBUG] Task folder: {task_folder}")
     
-    try:
-        # Визначити папку для пошуку
-        if task_folder and os.path.exists(task_folder):
-            base_dir = Path(task_folder)
-            logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
-        else:
-            base_dir = Path("/home/openclaw/mysite/blueprints/doc_generator/temp/ai_responses")
-            logger.info(f"[DEBUG] Using default temp folder as base dir: {base_dir}")
+#     try:
+#         # Визначити папку для пошуку
+#         if task_folder and os.path.exists(task_folder):
+#             base_dir = Path(task_folder)
+#             logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
+#         else:
+#             base_dir = Path("/home/openclaw/mysite/blueprints/doc_generator/temp/ai_responses")
+#             logger.info(f"[DEBUG] Using default temp folder as base dir: {base_dir}")
         
-        response_file = base_dir / "ai_responses" / response_type / f"{task_id}_{response_type}_response.txt"
-        logger.info(f"[DEBUG] Looking for response file: {response_file}")
-        logger.info(f"[DEBUG] Response file exists: {response_file.exists()}")
+#         response_file = base_dir / "ai_responses" / response_type / f"{task_id}_{response_type}_response.txt"
+#         logger.info(f"[DEBUG] Looking for response file: {response_file}")
+#         logger.info(f"[DEBUG] Response file exists: {response_file.exists()}")
         
-        if response_file.exists():
-            logger.info(f"[DEBUG] Response file found, loading content...")
-            with open(response_file, 'r', encoding='utf-8') as f:
-                content = f.read()
+#         if response_file.exists():
+#             logger.info(f"[DEBUG] Response file found, loading content...")
+#             with open(response_file, 'r', encoding='utf-8') as f:
+#                 content = f.read()
             
-            # Debug info: file loaded successfully
-            file_size = response_file.stat().st_size
-            logger.info(f"[DEBUG] Response file loaded: {file_size} bytes")
-            logger.info(f"[DEBUG] Content length: {len(content)} chars")
-            logger.info(f"[DEBUG] Content preview: {content[:100]}...")
+#             # Debug info: file loaded successfully
+#             file_size = response_file.stat().st_size
+#             logger.info(f"[DEBUG] Response file loaded: {file_size} bytes")
+#             logger.info(f"[DEBUG] Content length: {len(content)} chars")
+#             logger.info(f"[DEBUG] Content preview: {content[:100]}...")
             
-            # Видалити заголовок
-            if "="*50 in content:
-                cleaned_content = content.split("="*50, 1)[1].strip()
-                logger.info(f"[DEBUG] Content cleaned (removed header)")
-                return cleaned_content
+#             # Видалити заголовок
+#             if "="*50 in content:
+#                 cleaned_content = content.split("="*50, 1)[1].strip()
+#                 logger.info(f"[DEBUG] Content cleaned (removed header)")
+#                 return cleaned_content
             
-            logger.info(f"[DEBUG] Content returned as-is (no header found)")
-            return content.strip()
+#             logger.info(f"[DEBUG] Content returned as-is (no header found)")
+#             return content.strip()
         
-        logger.warning(f"[DEBUG] Response file not found: {response_file}")
-        return None
+#         logger.warning(f"[DEBUG] Response file not found: {response_file}")
+#         return None
         
-    except Exception as e:
-        logger.warning(f"[{task_id}] Failed to load AI response: {e}")
-        return None
+#     except Exception as e:
+#         logger.warning(f"[{task_id}] Failed to load AI response: {e}")
+#         return None
 
 # NOTE: Old architecture functions moved to old_architecture/generator_old.py:
 # - class GeneratedSection

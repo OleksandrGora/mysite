@@ -2,6 +2,7 @@
 from blueprints.txt_to_docx_converter import converter_bp
 from blueprints.doc_generator import doc_generator_bp
 from blueprints.pptx_generator import pptx_generator_bp
+from blueprints.ocr_processor import ocr_processor_bp
 from blueprints.doc_generator.celery_worker import celery_app
 from flask import Flask, render_template, redirect, url_for, session
 from authlib.integrations.flask_client import OAuth
@@ -37,10 +38,17 @@ logger.add(
 logger.add(sys.stderr, level="INFO")
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True  # Disable template caching
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable static file caching
 app.register_blueprint(converter_bp)
 app.register_blueprint(doc_generator_bp)
 app.register_blueprint(pptx_generator_bp)
-app.secret_key = os.getenv('SECRET_KEY')
+app.register_blueprint(ocr_processor_bp, url_prefix='/ocr-processor')
+app.secret_key = os.getenv('SECRET_KEY', 'temporary_secret_key_for_debug')
+
+logger.info("=== APP STARTUP ===")
+logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor (prefix=/ocr-processor)")
+logger.info(f"Secret key set: {bool(app.secret_key)}")
 
 # Celery and data configuration
 app.config['DATA_DIR'] = os.getenv('DATA_DIR', '/home/openclaw/mysite/data')
@@ -74,39 +82,52 @@ SERVICES = [
     {"name": "Конвертер LaTeX → Google Doc, Microsoft Word", "url": "/converter", "desc": "Конвертація TXT/MD файлів"},
     {"name": "Генератор документів", "url": "/doc-generator", "desc": "Генерація документів з шаблонів і джерел"},
     {"name": "Генератор PowerPoint презентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
+    {"name": "OCR Текстовий Розпізнавач", "url": "/ocr-processor", "desc": "Розпізнавання друкованого та рукописного тексту зі зображень"},
 ]
 
 @app.route('/')
 def index():
+    logger.info(f"[INDEX] Request from session: email={session.get('email')}")
     if 'email' not in session:
+        logger.info("[INDEX] No email in session, redirecting to login")
         return redirect(url_for('login'))
+    logger.info(f"[INDEX] Rendering index.html for {session['email']}")
     return render_template('index.html', services=SERVICES)
 
 @app.route('/login')
 def login():
+    logger.info("[LOGIN] Redirecting to Google OAuth")
     return google.authorize_redirect('https://openclaw.tailf549b1.ts.net/auth/callback')
 
 @app.route('/auth/callback')
 def auth_callback():
+    logger.info("[AUTH_CALLBACK] Received callback from Google")
     try:
         token = google.authorize_access_token()
-    except Exception:
+        logger.info("[AUTH_CALLBACK] Token received successfully")
+    except Exception as e:
+        logger.error(f"[AUTH_CALLBACK] Failed to get token: {e}")
         return redirect(url_for('login'))
     
     user_info = token.get('userinfo')
     email = user_info.get('email')
+    logger.info(f"[AUTH_CALLBACK] User email: {email}")
     
     if email not in ALLOWED_EMAILS:
+        logger.warning(f"[AUTH_CALLBACK] Access denied for {email}")
         return render_template('access_denied.html', email=email), 403
     
     # Converter flow depends on OAuth token in session
     session['token'] = token
     session['email'] = email
     session.modified = True
+    logger.info(f"[AUTH_CALLBACK] Session set for {email}, redirecting to index")
     return redirect(url_for('index'))
     
 @app.route('/logout')
 def logout():
+    email = session.get('email', 'unknown')
+    logger.info(f"[LOGOUT] User {email} logging out")
     session.clear()
     return redirect(url_for('login'))
 

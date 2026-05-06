@@ -54,6 +54,7 @@ class TableInfo:
     headers: List[str]
     has_header_row: bool
     sample_row_cells: int  # Number of cells in a data row (for complex tables)
+    first_column_data: List[str]  # Data from the first column (excluding header if present)
 
 
 @dataclass
@@ -100,6 +101,17 @@ def parse_table(table: Table, table_index: int) -> TableInfo:
         if any(headers) and rows > 1:
             has_header_row = True
     
+    # Extract first column data (excluding header if present)
+    first_column_data = []
+    start_row = 1 if has_header_row else 0
+    for row_idx in range(start_row, min(rows, start_row + 10)):  # Limit to first 10 data rows to avoid too much data
+        if row_idx < len(table.rows):
+            row = table.rows[row_idx]
+            if len(row.cells) > 0:
+                cell_text = row.cells[0].text.strip()
+                if cell_text:  # Only add non-empty cells
+                    first_column_data.append(cell_text)
+    
     # Sample row cells count (for tables with merged cells)
     sample_cells = 0
     if rows > (1 if has_header_row else 0):
@@ -113,7 +125,8 @@ def parse_table(table: Table, table_index: int) -> TableInfo:
         columns=columns,
         headers=headers,
         has_header_row=has_header_row,
-        sample_row_cells=sample_cells
+        sample_row_cells=sample_cells,
+        first_column_data=first_column_data
     )
 
 
@@ -219,6 +232,15 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
                     if any(clean_row):
                         rows_data.append(clean_row)
                 if rows_data:
+                    # Extract first column data (excluding header)
+                    first_column_data = []
+                    start_row = 1 if len(rows_data) > 1 else 0
+                    for row_idx in range(start_row, min(len(rows_data), start_row + 10)):
+                        if row_idx < len(rows_data) and len(rows_data[row_idx]) > 0:
+                            cell_text = rows_data[row_idx][0].strip()
+                            if cell_text:
+                                first_column_data.append(cell_text)
+                    
                     tables.append({
                         'index': len(tables),
                         'page': page_num + 1,
@@ -226,7 +248,8 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
                         'columns': tab.col_count,
                         'headers': rows_data[0] if rows_data else [],
                         'has_header_row': True,
-                        'sample_data': rows_data[1:3]
+                        'sample_data': rows_data[1:3],
+                        'first_column_data': first_column_data
                     })
         except Exception as e:
             logger.warning(f"Could not extract tables from page {page_num + 1}: {e}")

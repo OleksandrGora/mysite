@@ -16,22 +16,35 @@ from pathlib import Path
 from pydantic import BaseModel
 import google.genai as genai
 from ..config import (
-    GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE,
-    FULL_DOCUMENT_GENERATION_PROMPT
+    GEMINI_API_KEY, OPENAI_API_KEY, REASONING_MODEL, TEMPERATURE,
+    FULL_DOCUMENT_GENERATION_PROMPT, get_model_provider
 )
 from loguru import logger
 from ..routes import append_debug_log
 
-# Initialize Gemini client
-client = None
+# Initialize clients
+gemini_client = None
+openai_client = None
+
 if GEMINI_API_KEY:
     try:
         # For new google-genai package
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        logger.info("Gemini client initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Gemini client: {e}")
 else:
     logger.warning("GEMINI_API_KEY not configured")
+
+if OPENAI_API_KEY:
+    try:
+        from openai import OpenAI
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("OpenAI client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
+else:
+    logger.warning("OPENAI_API_KEY not configured")
 
 
 # def save_full_document_prompt_response(task_id: str, prompt: str, response: str, task_folder: str = None):
@@ -245,7 +258,8 @@ def generate_document_full(
     sources_data: Dict[str, Dict[str, Any]],
     task_id: str = "unknown",
     user_prompt: Optional[str] = None,
-    task_folder: Optional[str] = None
+    task_folder: Optional[str] = None,
+    selected_model: Optional[str] = None
 ) -> str:
     """
     Generate full document in one pass using LLM.
@@ -256,6 +270,7 @@ def generate_document_full(
         task_id: For logging
         user_prompt: Optional user prompt for generation
         task_folder: Optional task folder path for saving AI responses
+        selected_model: Model to use (from user selection), fallback to env REASONING_MODEL
         
     Returns:
         Generated markdown text
@@ -263,8 +278,17 @@ def generate_document_full(
     logger.info(f"[{task_id}] Starting full document generation (one-pass)...")
     logger.info(f"[{task_id}] Using only analysis.txt data, no test data generation")
     
-    if not GEMINI_API_KEY:
+    # Use selected_model if provided, otherwise fallback to env variable
+    actual_model = selected_model or REASONING_MODEL
+    provider = get_model_provider(actual_model)
+    logger.info(f"[{task_id}] Using provider: {provider} for model: {actual_model}")
+    
+    if provider == 'gemini' and not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not configured")
+    elif provider == 'openai' and not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not configured")
+    elif provider not in ['gemini', 'openai']:
+        raise ValueError(f"Unsupported model provider: {provider}")
     
     # Parse analysis text to get structure
     from ..parsers.analysis_parser import parse_analysis
@@ -307,6 +331,10 @@ def generate_document_full(
         }
         if table.columns:
             table_data["columns"] = table.columns
+        if table.rows is not None:
+            table_data["rows"] = table.rows
+        if table.first_column_data is not None:
+            table_data["first_column_data"] = table.first_column_data
         structure.append(table_data)
     
     # Extract instructions from description.general fields
@@ -356,14 +384,30 @@ def generate_document_full(
                 # save_full_document_prompt_response(task_id, prompt, "[PENDING - AI call in progress]", task_folder)
                 save_ai_response(task_id, "full_doc", prompt, "[PENDING - AI call in progress]", task_folder)
             
-            logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
-            response = client.models.generate_content(
-                model=REASONING_MODEL,
-                contents=prompt,
-                config={"temperature": TEMPERATURE}
-            )
-            
-            markdown_text = response.text.strip()
+            if provider == 'gemini':
+                logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
+                response = gemini_client.models.generate_content(
+                    model=actual_model,
+                    contents=prompt,
+                    config={"temperature": TEMPERATURE}
+                )
+                markdown_text = response.text.strip()
+                
+            elif provider == 'openai':
+                logger.info(f"[{task_id}] Sending request to OpenAI (спроба {attempt + 1}/{max_retries})...")
+                response = openai_client.chat.completions.create(
+                    model=actual_model,
+                    messages=[
+                        {"role": "system", "content": "Ти — експерт з генерації документів українською мовою. Створюй якісні, структуровані документи."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=TEMPERATURE,
+                    max_tokens=8000
+                )
+                markdown_text = response.choices[0].message.content.strip()
+                
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
             
             # Save AI response for debugging
             logger.info(f"[DEBUG] About to save AI response for full_document")

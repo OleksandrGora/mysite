@@ -26,7 +26,7 @@ def log_request_info():
         logger.info(f"[DEBUG] GET request: {request.method} {request.path}")
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
-from .config import ANALYSIS_PROMPT, AVAILABLE_MODELS, MODEL_SETTINGS_FILE
+from .config import ANALYSIS_PROMPT, AVAILABLE_MODELS, REASONING_MODEL, save_selected_model, get_selected_model
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
@@ -90,35 +90,6 @@ def clear_debug_log() -> bool:
         logger.error(f"Failed to clear debug log: {e}")
         return False
 
-# --- Model Selection Helpers ---
-
-def get_selected_model() -> str:
-    """Get the currently selected model from settings file."""
-    if os.path.exists(MODEL_SETTINGS_FILE):
-        try:
-            with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-                model = settings.get('selected_model')
-                if model in AVAILABLE_MODELS:
-                    return model
-        except Exception as e:
-            logger.error(f"Failed to load model settings: {e}")
-    # Default to first available model
-    return AVAILABLE_MODELS[0] if AVAILABLE_MODELS else 'gemini-2.5-pro'
-
-def save_selected_model(model: str) -> bool:
-    """Save the selected model to settings file."""
-    if model not in AVAILABLE_MODELS:
-        logger.error(f"Invalid model: {model}")
-        return False
-    try:
-        with open(MODEL_SETTINGS_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'selected_model': model}, f)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save model settings: {e}")
-        return False
-
 # --- Authentication Decorator ---
 
 def login_required(f):
@@ -144,7 +115,7 @@ def sanitize_filename(filename):
     """
     Sanitize filename while preserving Unicode characters.
     - Replace spaces with underscores
-    - Remove dangerous characters: / \ : * ? " < > |
+    - Remove dangerous characters: / \\ : * ? " < > |
     - Keep Cyrillic and other Unicode
     - Limit length to 200 chars
     """
@@ -525,15 +496,15 @@ def get_available_models():
     """Get list of available models."""
     return jsonify({
         'models': AVAILABLE_MODELS,
-        'selected': get_selected_model()
+        'selected': get_current_model()
     })
 
 
 @doc_generator_bp.route('/api/models/selected', methods=['GET'])
 @login_required
-def get_current_model():
-    """Get currently selected model."""
-    return jsonify({'model': get_selected_model()})
+def get_current_model() -> str:
+    """Get currently selected model (from user's saved choice or env)."""
+    return get_selected_model()
 
 
 @doc_generator_bp.route('/api/models/selected', methods=['POST'])
@@ -548,11 +519,9 @@ def set_current_model():
     if model not in AVAILABLE_MODELS:
         return jsonify({'error': f'Invalid model: {model}'}), 400
     
-    success = save_selected_model(model)
-    if success:
-        return jsonify({'status': 'success', 'model': model})
-    else:
-        return jsonify({'error': 'Failed to save model selection'}), 500
+    # Save selected model to settings file
+    save_selected_model(model)
+    return jsonify({'status': 'success', 'model': model})
 
 
 # ============================================================================
@@ -563,14 +532,20 @@ def set_current_model():
 def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     """Celery task for document analysis using LLM."""
     from loguru import logger
-    from .config import GEMINI_API_KEY, REASONING_MODEL, TEMPERATURE
+    from .config import GEMINI_API_KEY, OPENAI_API_KEY, TEMPERATURE, get_model_provider
     from google import genai
+    
+    # Use the model selected by user, fallback to env variable
+    selected_model = get_selected_model()
     
     logger.info(f"[ANALYZE] Starting analysis for task {task_id}")
     logger.info(f"[ANALYZE] Folder path: {folder_path}")
     
     # Write to debug log for UI visibility
-    append_debug_log(f"[CELERY] Аналіз запущено для завдання {task_id}")
+    attempt_num = self.request.retries + 1
+    attempt_suffix = f" (Спроба {attempt_num})" if attempt_num > 1 else ""
+    append_debug_log(f"[CELERY] Аналіз запущено для завдання {task_id}{attempt_suffix}")
+    append_debug_log(f"[CELERY] Модель для аналізу: {selected_model}")
     
     try:
         update_task_status(folder_path, 'analyzing')
@@ -621,10 +596,8 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         # Call LLM for analysis
         logger.info(f"[ANALYZE] Initializing LLM client...")
-        client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-        
-        if not client:
-            raise ValueError("No API key configured")
+        provider = get_model_provider(selected_model)
+        logger.info(f"[ANALYZE] Using provider: {provider} for model: {selected_model}")
         
         # Debug: check types before format
         logger.info(f"[ANALYZE] ANALYSIS_PROMPT type: {type(ANALYSIS_PROMPT)}")
@@ -633,16 +606,43 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         prompt = ANALYSIS_PROMPT.format(text_content=text_content[:500000])
         logger.info(f"[ANALYZE] Prompt prepared, length: {len(prompt)}")
-
-        logger.info(f"[ANALYZE] Calling LLM model: {REASONING_MODEL}...")
-        response = client.models.generate_content(
-            model=REASONING_MODEL,
-            contents=prompt,
-            config={"temperature": TEMPERATURE}
-        )
-        logger.info(f"[ANALYZE] LLM response received, type: {type(response)}")
         
-        analysis_text = response.text
+        if provider == 'gemini':
+            if not GEMINI_API_KEY:
+                raise ValueError("Gemini API key not configured")
+            
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            logger.info(f"[ANALYZE] Calling Gemini model: {selected_model}...")
+            response = client.models.generate_content(
+                model=selected_model,
+                contents=prompt,
+                config={"temperature": TEMPERATURE}
+            )
+            analysis_text = response.text
+            
+        elif provider == 'openai':
+            if not OPENAI_API_KEY:
+                raise ValueError("OpenAI API key not configured")
+            
+            from openai import OpenAI
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            logger.info(f"[ANALYZE] Calling OpenAI model: {selected_model}...")
+            response = client.chat.completions.create(
+                model=selected_model,
+                messages=[
+                    {"role": "system", "content": "Ти — експерт з аналізу структури документів. Відповідай українською мовою."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=TEMPERATURE,
+                max_tokens=4000
+            )
+            analysis_text = response.choices[0].message.content
+            
+        else:
+            raise ValueError(f"Unsupported model provider: {provider}")
+        
+        logger.info(f"[ANALYZE] LLM response received, type: {type(response)}")
+        logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
         logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
         
         # Save AI response for debugging
@@ -667,7 +667,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         # Extract clean error message from Gemini API errors
         error_msg = str(e)
         if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
-            # Extract the actual message from Gemini error format
+            # Extract the actual message from Gemini API error format
             try:
                 import re
                 match = re.search(r"'message': '([^']+)'", error_msg)
@@ -680,13 +680,13 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         # Check if retry is possible
         if self.request.retries < self.max_retries:
-            next_retry = self.request.retries + 1
-            append_debug_log(f"[CELERY] Буде запущена {next_retry} спроба аналізу через 60 секунд")
+            next_attempt = self.request.retries + 2
+            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба аналізу через 30 секунд")
         
         # Only mark as failed if this is the final retry attempt
         if self.request.retries >= self.max_retries:
             update_task_status(folder_path, 'failed', error_msg)
-        raise self.retry(exc=e, countdown=60)
+        raise self.retry(exc=e, countdown=30)
 
 
 @shared_task(bind=True, max_retries=2)
@@ -694,8 +694,14 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
     """Celery task for final document generation using one-pass LLM approach."""
     from loguru import logger
     
+    # Use the model selected by user, fallback to env variable
+    selected_model = get_selected_model()
+    
     logger.info(f"[GENERATE] Starting generation for task {task_id}")
-    append_debug_log(f"[CELERY] Початок генерації документа для завдання {task_id}")
+    attempt_num_gen = self.request.retries + 1
+    attempt_suffix_gen = f" (Спроба {attempt_num_gen})" if attempt_num_gen > 1 else ""
+    append_debug_log(f"[CELERY] Початок генерації документа для завдання {task_id}{attempt_suffix_gen}")
+    append_debug_log(f"[CELERY] Модель для генерації: {selected_model}")
     
     try:
         update_task_status(folder_path, 'generating')
@@ -741,7 +747,7 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         logger.info(f"[GENERATE] Generation prompt type: {type(generation_prompt)}")
         logger.info(f"[GENERATE] Generation prompt length: {len(generation_prompt)}")
         
-        # Generate document using LLM
+        # Generate document using LLM with the selected model
         from .reasoning import generate_document_full
         
         markdown_content = generate_document_full(
@@ -749,7 +755,8 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
             sources_data=sources_data,
             task_id=task_id,
             user_prompt=generation_prompt,
-            task_folder=folder_path
+            task_folder=folder_path,
+            selected_model=selected_model
         )
         
         # Convert markdown to DOCX
@@ -790,10 +797,10 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         
         # Check if retry is possible
         if self.request.retries < self.max_retries:
-            next_retry = self.request.retries + 1
-            append_debug_log(f"[CELERY] Буде запущена {next_retry} спроба генерації через 60 секунд")
+            next_attempt = self.request.retries + 2
+            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба генерації через 30 секунд")
         
         # Only mark as failed if this is the final retry attempt
         if self.request.retries >= self.max_retries:
             update_task_status(folder_path, 'failed', error_msg)
-        raise self.retry(exc=e, countdown=60)
+        raise self.retry(exc=e, countdown=30)

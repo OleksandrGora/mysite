@@ -381,9 +381,7 @@
             <div class="model-selector">
                 <label for="model-select">Модель:</label>
                 <select id="model-select" onchange="saveModelSelection()">
-                    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                    <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+                    <!-- Options will be populated dynamically from API -->
                 </select>
             </div>
         </div>
@@ -505,6 +503,14 @@
         });
         
         // Model selection
+        function getSavedModel() {
+            return localStorage.getItem('docgen_selected_model');
+        }
+
+        function saveModelToStorage(model) {
+            localStorage.setItem('docgen_selected_model', model);
+        }
+
         async function loadModelSelection() {
             try {
                 const response = await fetch(`${API_BASE}/api/models`);
@@ -514,15 +520,29 @@
                 const select = document.getElementById('model-select');
                 select.innerHTML = ''; // Clear existing options
                 
+                // Check localStorage for saved model preference
+                const savedModel = getSavedModel();
+                const selectedModel = savedModel || data.selected;
+                
                 data.models.forEach(model => {
                     const option = document.createElement('option');
                     option.value = model;
                     option.textContent = model;
-                    option.selected = model === data.selected;
+                    option.selected = model === selectedModel;
                     select.appendChild(option);
                 });
                 
-                log(`Модель завантажено: ${data.selected}`, 'info');
+                // Sync saved model to server if different from server's current
+                if (savedModel && savedModel !== data.selected) {
+                    await fetch(`${API_BASE}/api/models/selected`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: savedModel })
+                    });
+                    log(`Модель завантажено: ${savedModel} (синхронізовано з сервером)`, 'info');
+                } else {
+                    log(`Модель завантажено: ${selectedModel}${savedModel ? ' (збережена)' : ' (за замовчуванням)'}`, 'info');
+                }
             } catch (e) {
                 console.error('Failed to load model selection:', e);
             }
@@ -531,6 +551,9 @@
         async function saveModelSelection() {
             const select = document.getElementById('model-select');
             const model = select.value;
+            
+            // Save to localStorage
+            saveModelToStorage(model);
             
             try {
                 const response = await fetch(`${API_BASE}/api/models/selected`, {

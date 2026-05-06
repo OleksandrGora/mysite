@@ -32,6 +32,8 @@ class Table:
     title: str
     level: int
     columns: List[str]
+    rows: Optional[int] = None  # Number of rows in the table
+    first_column_data: Optional[List[str]] = None  # Data from first column
 
 
 @dataclass
@@ -93,12 +95,16 @@ def parse_json_analysis(analysis_text: str) -> ParsedAnalysis:
         
         if item_type == 'table':
             columns = item.get('columns', [])
+            rows = item.get('rows')
+            first_column_data = item.get('first_column_data')
             logger.info(f"[DEBUG] Found table with {len(columns)} columns: {columns}")
             tables.append(Table(
                 index=item_id,
                 title=title,
                 level=level,
-                columns=columns
+                columns=columns,
+                rows=rows,
+                first_column_data=first_column_data
             ))
         elif item_type == 'text':
             description = item.get('description', {})
@@ -238,12 +244,20 @@ def parse_table_line(index: int, content: str) -> Dict[str, Any]:
     else:
         columns = []
     
+    # Try to extract rows count (look for pattern like "(5 рядків)" or similar)
+    rows = None
+    rows_match = re.search(r'\((\d+)\s+рядків?\)', content)
+    if rows_match:
+        rows = int(rows_match.group(1))
+    
     return {
         'type': 'table',
         'index': index,
         'title': title,
         'level': level,
-        'columns': columns
+        'columns': columns,
+        'rows': rows,
+        'first_column_data': None  # Not available in text format
     }
 
 
@@ -281,7 +295,9 @@ def parse_text_analysis(analysis_text: str) -> ParsedAnalysis:
                     index=parsed['index'],
                     title=parsed['title'],
                     level=parsed['level'],
-                    columns=parsed['columns']
+                    columns=parsed['columns'],
+                    rows=parsed.get('rows'),
+                    first_column_data=parsed.get('first_column_data')
                 ))
     
     logger.info(f"Parsed text: {len(sections)} sections and {len(tables)} tables")
@@ -345,6 +361,10 @@ def build_markdown_structure(analysis: ParsedAnalysis) -> str:
         lines.append(f"{prefix} {table.title}")
         if table.columns:
             lines.append(f"Columns: {', '.join(table.columns)}")
+        if table.rows is not None:
+            lines.append(f"Rows: {table.rows}")
+        if table.first_column_data:
+            lines.append(f"First column data: {', '.join(table.first_column_data)}")
         lines.append("")
     
     return '\n'.join(lines)

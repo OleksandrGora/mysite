@@ -2,6 +2,7 @@
 Configuration for document generator service.
 """
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,6 +10,7 @@ load_dotenv()
 
 # LLM Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-pro')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
 
@@ -17,6 +19,7 @@ AVAILABLE_MODELS = [
     'gemini-2.5-pro',
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
+    'gpt-5-nano'
 ]
 
 # Model settings file path
@@ -27,44 +30,78 @@ MAX_TOKENS_PER_SECTION = 4000
 MAX_TOKENS_FOR_TABLE = 2000
 TEMPERATURE = 0.3  # Lower for more consistent output
 
+# Model Provider Detection
+def is_gemini_model(model_name: str) -> bool:
+    """Check if model is from Google Gemini."""
+    return model_name.startswith('gemini-')
+
+def is_openai_model(model_name: str) -> bool:
+    """Check if model is from OpenAI."""
+    return model_name.startswith('gpt-')
+
+def get_model_provider(model_name: str) -> str:
+    """Get the provider name for the model."""
+    if is_gemini_model(model_name):
+        return 'gemini'
+    elif is_openai_model(model_name):
+        return 'openai'
+    else:
+        return 'unknown'
+
 # Feature Flags
 USE_RAG = os.getenv('USE_RAG', 'false').lower() == 'true'
 
 # Prompt Templates
 ANALYSIS_PROMPT = """Проаналізуй структуру документа: виведи розділи, підрозділи та таблиці у порядку розташування.
 
-ФОРМАТ — кожен елемент в одному рядку, перенос заборонений:
-- Розділ з текстом: N| [назва][рівень] | [від X до Y слів] | загальний опис ## Наприклад: конкретний опис |
-- Розділ без тексту: N| [назва][рівень] |
-- Таблиця: N| [назва таблиці][рівень] [стовпець 1 | стовпець 2 | стовпець 3] |
+ФОРМАТ ВІДПОВІДІ — виключно JSON масив об'єктів, без markdown блоків (без ```):
 
-РІВНІ: [0] головний заголовок, [1] розділ, [2] підрозділ, [3][4] далі за вкладеністю. Таблиця — на рівень глибше розділу де знаходиться. Кожен заголовок — окремий рядок, не об'єднувати.
+Для текстових розділів:
+{{
+  "id": N,
+  "type": "text",
+  "title": "назва розділу",
+  "level": рівень,
+  "words": "від X до Y слів",
+  "description": {{
+    "general": "загальний опис призначення розділу",
+    "specific": "конкретний опис з документа"
+  }}
+}}
+
+Для таблиць:
+{{
+  "id": N,
+  "type": "table",
+  "title": "назва таблиці",
+  "level": рівень,
+  "rows": кількість_рядків,
+  "columns": ["стовпець 1", "стовпець 2", "стовпець 3"],
+  "first_column_data": ["дані1", "дані2", "дані3"]
+}}
+
+ПРАВИЛА АНАЛІЗУ:
+
+РІВНІ: [0] головний заголовок, [1] розділ, [2] підрозділ, [3][4] далі за вкладеністю. Таблиця — на рівень глибше розділу де знаходиться.
 
 РОЗМІР РОЗДІЛУ:
 - Порахувати кількість слів у тексті розділу (не включаючи підрозділи та таблиці)
 - X = round(кількість * 0.85), Y = round(кількість * 1.15)
-- Формат: [від X до Y слів]
+- Формат: "від X до Y слів"
 
-ОПИС — рівно одне речення для кожної частини, обидві частини обов'язкові якщо є текст:
-- Загальний опис: призначення цього типу розділу без жодних слів з документа, підходить для будь-якої галузі. Починати одразу з дієслова або іменника, без вступних слів
-- ## Наприклад:: конкретний зміст з деталями з документа
+ОПИС РОЗДІЛУ:
+- Загальний опис: призначення цього типу розділу без жодних слів з документа, підходить для будь-якої галузі. Починати одразу з дієслова або іменника
+- Specific: конкретний зміст з деталями з документа
 
 ТАБЛИЦІ:
 - Назва таблиці — це підпис типу 'Таблиця 1', 'Таблиця 2' розташований над або під таблицею. Якщо підпису немає — використати перший рядок шапки як назву
-- Заголовки стовпців — всі текстові назви із шапки таблиці включно з першим стовпцем
+- rows: точна кількість рядків у таблиці (включно з заголовком)
+- columns: масив назв усіх стовпців з шапки
+- first_column_data: масив даних з першого стовпця (окрім заголовка), максимум 10 перших значень
 - Якщо таблиця має однакові стовпці що повторюються — включати лише унікальні назви
-- Не включати: дані рядків, числа, рядок з цифрами 1 2 3
-- Роздільник: |
-- 'Назва, %' — один заголовок
 
 ТЕКСТ ДОКУМЕНТА:
 {text_content}
-
-Виведи все у JSON форматі.
-Структура JSON:
-"id", "type": "text/table", "title", "level", "words", "description": {{"general", "specific"}}
-
-Виведи все у JSON форматі, без markdown блоків (без \`\`\`)
 
 Відповідь українською."""
 
@@ -148,3 +185,26 @@ FULL_DOCUMENT_GENERATION_PROMPT = """Ти — експерт з написанн
 def validate_config():
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not set in .env file")
+
+
+def save_selected_model(model: str):
+    """Save selected model to settings file."""
+    try:
+        with open(MODEL_SETTINGS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'selected_model': model}, f)
+    except Exception as e:
+        print(f"Failed to save selected model: {e}")
+
+
+def get_selected_model() -> str:
+    """Get selected model from settings file, fallback to REASONING_MODEL env."""
+    try:
+        if os.path.exists(MODEL_SETTINGS_FILE):
+            with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                model = data.get('selected_model')
+                if model and model in AVAILABLE_MODELS:
+                    return model
+    except Exception as e:
+        print(f"Failed to load selected model: {e}")
+    return REASONING_MODEL

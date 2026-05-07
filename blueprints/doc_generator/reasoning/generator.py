@@ -16,8 +16,9 @@ from pathlib import Path
 from pydantic import BaseModel
 import google.genai as genai
 from ..config import (
-    GEMINI_API_KEY, OPENAI_API_KEY, REASONING_MODEL, TEMPERATURE,
-    FULL_DOCUMENT_GENERATION_PROMPT, get_model_provider
+    GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, REASONING_MODEL,
+    TEMPERATURE, FULL_DOCUMENT_GENERATION_PROMPT, get_model_provider,
+    get_openai_completion_kwargs, is_deepseek_model
 )
 from loguru import logger
 from ..routes import append_debug_log
@@ -25,6 +26,7 @@ from ..routes import append_debug_log
 # Initialize clients
 gemini_client = None
 openai_client = None
+deepseek_client = None
 
 if GEMINI_API_KEY:
     try:
@@ -45,6 +47,19 @@ if OPENAI_API_KEY:
         logger.error(f"Failed to initialize OpenAI client: {e}")
 else:
     logger.warning("OPENAI_API_KEY not configured")
+
+if DEEPSEEK_API_KEY:
+    try:
+        from openai import OpenAI
+        deepseek_client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com"
+        )
+        logger.info("DeepSeek client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize DeepSeek client: {e}")
+else:
+    logger.warning("DEEPSEEK_API_KEY not configured")
 
 
 # def save_full_document_prompt_response(task_id: str, prompt: str, response: str, task_folder: str = None):
@@ -285,7 +300,9 @@ def generate_document_full(
         raise ValueError("GEMINI_API_KEY not configured")
     elif provider == 'openai' and not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not configured")
-    elif provider not in ['gemini', 'openai']:
+    elif provider == 'deepseek' and not DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY not configured")
+    elif provider not in ['gemini', 'openai', 'deepseek']:
         raise ValueError(f"Unsupported model provider: {provider}")
     
     # Parse analysis text to get structure
@@ -392,16 +409,72 @@ def generate_document_full(
                 
             elif provider == 'openai':
                 logger.info(f"[{task_id}] Sending request to OpenAI (спроба {attempt + 1}/{max_retries})...")
+                openai_kwargs = get_openai_completion_kwargs(
+                    model_name=actual_model,
+                    max_tokens=8000,
+                    temperature=TEMPERATURE
+                )
                 response = openai_client.chat.completions.create(
                     model=actual_model,
                     messages=[
                         {"role": "system", "content": "Ти — експерт з генерації документів українською мовою. Створюй якісні, структуровані документи."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=TEMPERATURE,
-                    max_tokens=8000
+                    **openai_kwargs
                 )
-                markdown_text = response.choices[0].message.content.strip()
+                # Get content - newer models may return None for filtered/refused responses
+                message = response.choices[0].message
+                raw_content = message.content
+                finish_reason = response.choices[0].finish_reason
+                
+                logger.info(f"[{task_id}] OpenAI response content type: {type(raw_content)}")
+                logger.info(f"[{task_id}] OpenAI finish_reason: {finish_reason}")
+                
+                # Try to get content from different possible locations
+                if raw_content is not None:
+                    markdown_text = raw_content.strip()
+                elif hasattr(message, 'refusal') and message.refusal:
+                    logger.warning(f"[{task_id}] OpenAI returned refusal: {message.refusal}")
+                    markdown_text = ""
+                else:
+                    logger.warning(f"[{task_id}] OpenAI returned empty response. finish_reason={finish_reason}")
+                    # Save full response as JSON for debugging
+                    try:
+                        debug_path = os.path.join(task_folder or '', 'ai_responses', f"{task_id}_full_doc_raw_response.json")
+                        os.makedirs(os.path.dirname(debug_path), exist_ok=True)
+                        with open(debug_path, 'w', encoding='utf-8') as f:
+                            f.write(response.model_dump_json(indent=2))
+                        logger.info(f"[{task_id}] Saved raw response to: {debug_path}")
+                    except Exception as dump_err:
+                        logger.warning(f"[{task_id}] Failed to dump raw response: {dump_err}")
+                    markdown_text = ""
+            
+            elif provider == 'deepseek':
+                logger.info(f"[{task_id}] Sending request to DeepSeek (спроба {attempt + 1}/{max_retries})...")
+                deepseek_kwargs = get_openai_completion_kwargs(
+                    model_name=actual_model,
+                    max_tokens=8000,
+                    temperature=TEMPERATURE
+                )
+                response = deepseek_client.chat.completions.create(
+                    model=actual_model,
+                    messages=[
+                        {"role": "system", "content": "Ти — експерт з генерації документів українською мовою. Створюй якісні, структуровані документи."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    **deepseek_kwargs
+                )
+                # DeepSeek uses same response format as OpenAI
+                raw_content = response.choices[0].message.content
+                finish_reason = response.choices[0].finish_reason
+                logger.info(f"[{task_id}] DeepSeek response content type: {type(raw_content)}")
+                logger.info(f"[{task_id}] DeepSeek finish_reason: {finish_reason}")
+                
+                if raw_content is not None:
+                    markdown_text = raw_content.strip()
+                else:
+                    logger.warning(f"[{task_id}] DeepSeek returned None content. finish_reason={finish_reason}")
+                    markdown_text = ""
                 
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
@@ -412,6 +485,20 @@ def generate_document_full(
             logger.info(f"[DEBUG] Task ID: {task_id}")
             logger.info(f"[DEBUG] Response type: full_document")
             logger.info(f"[DEBUG] Markdown text length: {len(markdown_text)}")
+            
+            # Validate: raise clear error if response is empty
+            if not markdown_text.strip():
+                error_msg = (
+                    f"Модель {actual_model} повернула порожню відповідь. "
+                    f"Finish reason: {getattr(response.choices[0], 'finish_reason', 'unknown')}. "
+                    f"Можливі причини: модель не підтримує системні промпти, "
+                    f"або відповідь була відфільтрована."
+                )
+                logger.error(f"[{task_id}] {error_msg}")
+                # Save error response for debugging
+                save_ai_response(task_id, "full_doc", prompt, f"[EMPTY RESPONSE] {error_msg}", task_folder, actual_model)
+                raise ValueError(error_msg)
+            
             # save_full_document_prompt_response(task_id, prompt, markdown_text, task_folder)
             save_ai_response(task_id, "full_doc", prompt, markdown_text, task_folder, actual_model)
             logger.info(f"[DEBUG] AI response saved for full_document")

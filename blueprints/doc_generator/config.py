@@ -11,6 +11,7 @@ load_dotenv()
 # LLM Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-pro')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
 
@@ -19,7 +20,8 @@ AVAILABLE_MODELS = [
     'gemini-2.5-pro',
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
-    'gpt-5-nano'
+    'gpt-5-nano',
+    'deepseek-v4-flash'
 ]
 
 # Model settings file path
@@ -39,14 +41,105 @@ def is_openai_model(model_name: str) -> bool:
     """Check if model is from OpenAI."""
     return model_name.startswith('gpt-')
 
+def is_deepseek_model(model_name: str) -> bool:
+    """Check if model is from DeepSeek."""
+    return model_name.startswith('deepseek-')
+
 def get_model_provider(model_name: str) -> str:
     """Get the provider name for the model."""
     if is_gemini_model(model_name):
         return 'gemini'
     elif is_openai_model(model_name):
         return 'openai'
+    elif is_deepseek_model(model_name):
+        return 'deepseek'
     else:
         return 'unknown'
+
+
+def needs_max_completion_tokens(model_name: str) -> bool:
+    """
+    Check if the model requires 'max_completion_tokens' instead of 'max_tokens'.
+    
+    Newer OpenAI models (GPT-4o, GPT-5, o-series) deprecated 'max_tokens'
+    and require 'max_completion_tokens' instead.
+    """
+    model_lower = model_name.lower()
+    # Models that require max_completion_tokens:
+    # - gpt-4o* (gpt-4o, gpt-4o-mini, gpt-4o-audio, etc.)
+    # - gpt-4.1* (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
+    # - gpt-5* (gpt-5, gpt-5-nano, etc.)
+    # - o-series (o1, o1-mini, o3, o3-mini, etc.)
+    # - chatgpt-* models
+    return (
+        model_lower.startswith('gpt-4o')
+        or model_lower.startswith('gpt-4.1')
+        or model_lower.startswith('gpt-5')
+        or model_lower.startswith('o1')
+        or model_lower.startswith('o3')
+        or model_lower.startswith('chatgpt-')
+    )
+
+
+def _is_temperature_restricted_model(model_name: str) -> bool:
+    """
+    Check if the model only supports temperature=1 (the default).
+    
+    Newer models like GPT-5 and o-series only accept the default
+    temperature value (1.0) and reject custom values.
+    """
+    model_lower = model_name.lower()
+    return (
+        model_lower.startswith('gpt-5')
+        or model_lower.startswith('o1')
+        or model_lower.startswith('o3')
+        or model_lower.startswith('chatgpt-')
+    )
+
+
+def get_openai_completion_kwargs(model_name: str, max_tokens: int, temperature: float) -> dict:
+    """
+    Get kwargs for OpenAI/DeepSeek chat.completions.create, handling compatibility:
+    - 'max_tokens' vs 'max_completion_tokens' parameter naming
+    - Temperature restrictions on newer models
+    
+    Args:
+        model_name: The model identifier
+        max_tokens: Desired max tokens / max completion tokens value
+        temperature: Temperature value
+        
+    Returns:
+        Dict of kwargs to pass to chat.completions.create
+    """
+    kwargs = {}
+    
+    # DeepSeek: uses standard OpenAI-compatible API (max_tokens + temperature)
+    if is_deepseek_model(model_name):
+        kwargs['temperature'] = temperature
+        kwargs['max_tokens'] = max_tokens
+        return kwargs
+    
+    # Temperature: skip for models that only support default (1.0),
+    # otherwise pass the custom value
+    if not _is_temperature_restricted_model(model_name):
+        kwargs['temperature'] = temperature
+    
+    # Max tokens:
+    # - Reasoning models (gpt-5*, o1*, o3*): max_completion_tokens includes
+    #   internal reasoning tokens. Setting a small value causes empty output
+    #   because all tokens are consumed by reasoning. Better to NOT set it
+    #   and let the model use its own default allocation.
+    # - Other new models (gpt-4o*, gpt-4.1*): use max_completion_tokens
+    # - Legacy models: use max_tokens
+    if _is_temperature_restricted_model(model_name):
+        # Reasoning models: skip max_completion_tokens to avoid empty responses
+        pass
+    elif needs_max_completion_tokens(model_name):
+        kwargs['max_completion_tokens'] = max_tokens
+    else:
+        kwargs['max_tokens'] = max_tokens
+    
+    return kwargs
 
 # Feature Flags
 USE_RAG = os.getenv('USE_RAG', 'false').lower() == 'true'

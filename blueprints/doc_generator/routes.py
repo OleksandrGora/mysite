@@ -26,7 +26,11 @@ def log_request_info():
         logger.info(f"[DEBUG] GET request: {request.method} {request.path}")
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
-from .config import ANALYSIS_PROMPT, AVAILABLE_MODELS, REASONING_MODEL, save_selected_model, get_selected_model
+from .config import (
+    ANALYSIS_PROMPT, AVAILABLE_MODELS, REASONING_MODEL, save_selected_model,
+    get_selected_model, get_openai_completion_kwargs, GEMINI_API_KEY,
+    OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE, get_model_provider
+)
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
@@ -532,7 +536,7 @@ def set_current_model():
 def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     """Celery task for document analysis using LLM."""
     from loguru import logger
-    from .config import GEMINI_API_KEY, OPENAI_API_KEY, TEMPERATURE, get_model_provider
+    from .config import GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE, get_model_provider
     from google import genai
     
     # Use the model selected by user, fallback to env variable
@@ -627,16 +631,62 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
             from openai import OpenAI
             client = OpenAI(api_key=OPENAI_API_KEY)
             logger.info(f"[ANALYZE] Calling OpenAI model: {selected_model}...")
+            openai_kwargs = get_openai_completion_kwargs(
+                model_name=selected_model,
+                max_tokens=4000,
+                temperature=TEMPERATURE
+            )
             response = client.chat.completions.create(
                 model=selected_model,
                 messages=[
                     {"role": "system", "content": "Ти — експерт з аналізу структури документів. Відповідай українською мовою."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=TEMPERATURE,
-                max_tokens=4000
+                **openai_kwargs
             )
-            analysis_text = response.choices[0].message.content
+            raw_content = response.choices[0].message.content
+            logger.info(f"[ANALYZE] OpenAI response content type: {type(raw_content)}, finish_reason: {response.choices[0].finish_reason}")
+            if raw_content is None:
+                logger.warning(f"[ANALYZE] OpenAI returned None content. Full response: {response}")
+                raise ValueError(
+                    f"Модель {selected_model} повернула порожню відповідь під час аналізу. "
+                    f"Finish reason: {response.choices[0].finish_reason}. "
+                    f"Можливо, модель не підтримує системні промпти."
+                )
+            analysis_text = raw_content
+        
+        elif provider == 'deepseek':
+            if not DEEPSEEK_API_KEY:
+                raise ValueError("DeepSeek API key not configured")
+            
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=DEEPSEEK_API_KEY,
+                base_url="https://api.deepseek.com"
+            )
+            logger.info(f"[ANALYZE] Calling DeepSeek model: {selected_model}...")
+            deepseek_kwargs = get_openai_completion_kwargs(
+                model_name=selected_model,
+                max_tokens=4000,
+                temperature=TEMPERATURE
+            )
+            response = client.chat.completions.create(
+                model=selected_model,
+                messages=[
+                    {"role": "system", "content": "Ти — експерт з аналізу структури документів. Відповідай українською мовою."},
+                    {"role": "user", "content": prompt}
+                ],
+                **deepseek_kwargs
+            )
+            raw_content = response.choices[0].message.content
+            logger.info(f"[ANALYZE] DeepSeek response content type: {type(raw_content)}, finish_reason: {response.choices[0].finish_reason}")
+            if raw_content is None:
+                logger.warning(f"[ANALYZE] DeepSeek returned None content. Full response: {response}")
+                raise ValueError(
+                    f"Модель {selected_model} повернула порожню відповідь під час аналізу. "
+                    f"Finish reason: {response.choices[0].finish_reason}."
+                )
+            analysis_text = raw_content
             
         else:
             raise ValueError(f"Unsupported model provider: {provider}")

@@ -342,15 +342,23 @@ def generate_document(task_id):
     
     generation_prompt = data.get('generation_prompt', task.get('generation_prompt', ''))
     source_files = data.get('source_files', task.get('source_files', []))
+    use_rag = data.get('use_rag', False)
+    chunk_params = data.get('chunk_params', {})
     
     # Update task info
     task['generation_prompt'] = generation_prompt
     task['source_files'] = source_files
+    task['use_rag'] = use_rag
     save_task_info(folder_path, task)
+    
+    if use_rag:
+        append_debug_log(f"[API] Запуск RAG-режиму для завдання {task_id}")
+        append_debug_log(f"[API] Параметри чанкування: {chunk_params}")
     
     # Start Celery task
     result = generate_final_document_task.delay(
-        task_id, folder_path, generation_prompt, source_files
+        task_id, folder_path, generation_prompt, source_files,
+        use_rag=use_rag, chunk_params=chunk_params
     )
     
     return jsonify({
@@ -413,10 +421,22 @@ def upload_file():
             'message': 'File already exists'
         }), 409
     
+    # For source files, trigger RAG processing in background
+    celery_task_id = None
+    if upload_type == 'source' and result.get('path'):
+        try:
+            celery_result = process_source_rag_task.delay(result['path'], result['filename'])
+            celery_task_id = celery_result.id
+            append_debug_log(f"[RAG] Запущено фонове чанкування для джерела: {result['filename']}")
+        except Exception as e:
+            logger.warning(f"Failed to start RAG processing for {result['filename']}: {e}")
+            append_debug_log(f"[RAG] Не вдалося запустити чанкування для {result['filename']}: {e}")
+    
     return jsonify({
         'status': 'success',
         'filename': result['filename'],
-        'path': result['path']
+        'path': result['path'],
+        'rag_task_id': celery_task_id
     })
 
 
@@ -714,152 +734,6 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
         logger.error(f"[ANALYZE] Traceback: {traceback.format_exc()}")
         
-        # Extract clean error message from Gemini API errors
-        error_msg = str(e)
-        if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
-            # Extract the actual message from Gemini API error format
-            try:
-                import re
-                match = re.search(r"'message': '([^']+)'", error_msg)
-                if match:
-                    error_msg = match.group(1)
-            except:
-                pass  # Fallback to original error if regex fails
-        
-        append_debug_log(f"[CELERY] ПОМИЛКА аналізу завдання {task_id}: '{error_msg}'")
-        
-        # Check if retry is possible
-        if self.request.retries < self.max_retries:
-            next_attempt = self.request.retries + 2
-            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба аналізу через 30 секунд")
-        
-        # Only mark as failed if this is the final retry attempt
-        if self.request.retries >= self.max_retries:
-            update_task_status(folder_path, 'failed', error_msg)
-        raise self.retry(exc=e, countdown=30)
-
-
-@shared_task(bind=True, max_retries=2)
-def generate_final_document_task(self, task_id, folder_path, generation_prompt, source_files):
-    """Celery task for final document generation using one-pass LLM approach."""
-    from loguru import logger
-    
-    # Use the model selected by user, fallback to env variable
-    selected_model = get_selected_model()
-    
-    logger.info(f"[GENERATE] Starting generation for task {task_id}")
-    attempt_num_gen = self.request.retries + 1
-    attempt_suffix_gen = f" (Спроба {attempt_num_gen})" if attempt_num_gen > 1 else ""
-    append_debug_log(f"[CELERY] Початок генерації документа для завдання {task_id}{attempt_suffix_gen}")
-    append_debug_log(f"[CELERY] Модель для генерації: {selected_model}")
-    
-    try:
-        update_task_status(folder_path, 'generating')
-        
-        # Load task info and analysis
-        task_info = load_task_info(folder_path)
-        analysis_text = load_analysis_result(folder_path)
-        
-        logger.info(f"[GENERATE] Task info loaded: {task_info is not None}")
-        logger.info(f"[GENERATE] Analysis text loaded: {analysis_text is not None}")
-        
-        if not analysis_text:
-            raise ValueError("Analysis not found. Run analysis first.")
-        
-        # Validate analysis_text is not None and has content
-        if analysis_text is None:
-            raise ValueError("Analysis text is None. Run analysis first.")
-        
-        if not isinstance(analysis_text, str):
-            raise ValueError(f"Analysis text is not string: {type(analysis_text)}")
-        
-        if not analysis_text.strip():
-            raise ValueError("Analysis text is empty. Run analysis first.")
-        
-        # Load source files
-        sources_data = {}
-        for src_file in source_files:
-            src_path = os.path.join(SOURCES_DIR, src_file)
-            if os.path.exists(src_path):
-                from .parsers.source_parser import parse_sources_with_metadata
-                src_data = parse_sources_with_metadata([src_path])
-                sources_data.update(src_data)
-        
-        if not sources_data:
-            raise ValueError("No source files found or could not be parsed.")
-        
-        # Validate generation_prompt
-        if generation_prompt is None:
-            generation_prompt = ""
-        elif not isinstance(generation_prompt, str):
-            generation_prompt = str(generation_prompt)
-        
-        logger.info(f"[GENERATE] Generation prompt type: {type(generation_prompt)}")
-        logger.info(f"[GENERATE] Generation prompt length: {len(generation_prompt)}")
-        
-        # Generate document using LLM with the selected model
-        from .reasoning import generate_document_full
-        
-        markdown_content = generate_document_full(
-            analysis_text=analysis_text,
-            sources_data=sources_data,
-            task_id=task_id,
-            user_prompt=generation_prompt,
-            task_folder=folder_path,
-            selected_model=selected_model
-        )
-        
-        # Convert markdown to DOCX
-        output_dir = os.path.join(folder_path, 'temp')
-        os.makedirs(output_dir, exist_ok=True)
-        temp_docx_path = os.path.join(output_dir, 'temp_result.docx')
-        
-        from .reasoning.markdown_to_docx import convert_markdown_to_docx, post_process_tables
-        convert_markdown_to_docx(markdown_content, temp_docx_path)
-        
-        # Post-process tables: enforce correct structure from analysis
-        # (headers from `columns`, first column from `first_column_data`, correct row count)
-        try:
-            from .parsers.analysis_parser import parse_analysis
-            parsed = parse_analysis(analysis_text)
-            if parsed.tables:
-                # Build table structures dicts (same as in generator.py)
-                table_structures = []
-                for table in parsed.tables:
-                    t = {
-                        "title": table.title,
-                        "level": table.level,
-                    }
-                    if table.columns:
-                        t["columns"] = table.columns
-                    if table.rows is not None:
-                        t["rows"] = table.rows
-                    if table.first_column_data is not None:
-                        t["first_column_data"] = table.first_column_data
-                    table_structures.append(t)
-                
-                append_debug_log(f"[CELERY] Post-processing {len(table_structures)} tables in DOCX")
-                post_process_tables(temp_docx_path, table_structures, task_id)
-        except Exception as e:
-            logger.warning(f"[{task_id}] Table post-processing warning (non-fatal): {e}")
-            append_debug_log(f"[CELERY] Table post-processing warning: {e}")
-        
-        # Save final document with proper name
-        save_final_document(folder_path, temp_docx_path)
-        
-        # Cleanup temp
-        shutil.rmtree(output_dir, ignore_errors=True)
-        
-        update_task_status(folder_path, 'completed')
-        
-        logger.info(f"[GENERATE] Completed for task {task_id}")
-        append_debug_log(f"[CELERY] Генерація документа завершена для завдання {task_id}")
-        return {'status': 'success', 'task_id': task_id}
-        
-    except Exception as e:
-        logger.error(f"[GENERATE] Failed for task {task_id}: {e}")
-        
-        # Extract clean error message from Gemini API errors
         error_msg = str(e)
         if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
             try:
@@ -870,16 +744,162 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
             except:
                 pass
         
-        append_debug_log(f"[CELERY] ПОМИЛКА генерації документа для завдання {task_id}: '{error_msg}'")
+        append_debug_log(f"[CELERY] ПОМИЛКА аналізу завдання {task_id}: '{error_msg}'")
         
-        # Check if retry is possible
         if self.request.retries < self.max_retries:
             next_attempt = self.request.retries + 2
-            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба генерації через 30 секунд")
+            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба аналізу через 30 секунд")
         
-        # Only mark as failed if this is the final retry attempt
         if self.request.retries >= self.max_retries:
             update_task_status(folder_path, 'failed', error_msg)
         raise self.retry(exc=e, countdown=30)
+
+
+# ============================================================================
+# CELERY TASK - Generate final document
+# ============================================================================
+
+@shared_task(bind=True, max_retries=2)
+def generate_final_document_task(self, task_id, folder_path, generation_prompt, source_files,
+                                 use_rag=False, chunk_params=None):
+    """Celery task for final document generation."""
+    from loguru import logger
+    ...
+
+
+# ============================================================================
+# CELERY TASK - Auto process source file for RAG
+# ============================================================================
+
+RAG_STATUS_FILE = os.path.join(os.path.dirname(__file__), 'Tasks-data', 'Sources', '.rag_status.json')
+
+
+def _get_rag_status() -> dict:
+    """Get RAG processing status for all source files."""
+    if os.path.exists(RAG_STATUS_FILE):
+        try:
+            with open(RAG_STATUS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+
+def _save_rag_status(status: dict):
+    """Save RAG processing status."""
+    os.makedirs(os.path.dirname(RAG_STATUS_FILE), exist_ok=True)
+    with open(RAG_STATUS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(status, f, ensure_ascii=False, indent=2)
+
+
+@doc_generator_bp.route('/api/sources/rag-status', methods=['GET'])
+@login_required
+def get_sources_rag_status():
+    """Get RAG processing status for all source files."""
+    return jsonify(_get_rag_status())
+
+
+@shared_task(bind=True, max_retries=1)
+def process_source_rag_task(self, file_path: str, filename: str):
+    """
+    Celery task: chunk + embed a source file and store in ChromaDB.
+    
+    Runs automatically after source file upload.
+    Results are cached: if ChromaDB collection already exists, skip.
+    """
+    from loguru import logger
+    import time
+    
+    logger.info(f"[RAG-SOURCE] Processing source file: {filename}")
+    append_debug_log(f"[RAG-SOURCE] Початок обробки джерела: {filename}")
+    
+    # Update status
+    status = _get_rag_status()
+    status[filename] = {
+        'status': 'processing',
+        'started_at': datetime.utcnow().isoformat(),
+        'message': 'Чанкування та побудова векторної бази...',
+        'file_path': file_path
+    }
+    _save_rag_status(status)
+    
+    try:
+        # Extract text from source file
+        from .parsers.source_parser import parse_sources_with_metadata
+        sources_data = parse_sources_with_metadata([file_path])
+        
+        if not sources_data or not any(d.get('text', '').strip() for d in sources_data.values()):
+            raise ValueError(f"Не вдалося витягти текст з файлу {filename}")
+        
+        text_data = sources_data.get(filename, {})
+        char_count = text_data.get('char_count', 0)
+        logger.info(f"[RAG-SOURCE] Extracted {char_count} chars from {filename}")
+        
+        # Chunk
+        from .rag.chunker import chunk_documents
+        chunks = chunk_documents(
+            sources_data=sources_data,
+            min_chunk_size=100,
+            max_chunk_size=500
+        )
+        logger.info(f"[RAG-SOURCE] Created {len(chunks)} chunks from {filename}")
+        append_debug_log(f"[RAG-SOURCE] {filename}: {len(chunks)} чанків, {char_count} символів")
+        
+        # Build vector store (with cache check)
+        from .rag.embedder import Embedder, compute_sources_hash
+        embedder = Embedder()
+        sources_hash = compute_sources_hash([file_path])
+        
+        cache_hit = embedder.collection_exists(sources_hash)
+        if cache_hit:
+            collection_name = embedder.get_collection_name(sources_hash)
+            logger.info(f"[RAG-SOURCE] Cache HIT for {filename}: collection '{collection_name}'")
+            append_debug_log(f"[RAG-SOURCE] {filename}: векторна база вже існує (кеш)")
+        else:
+            t_start = time.time()
+            collection_name = embedder.build(
+                chunks=chunks,
+                sources_hash=sources_hash,
+                source_files=[filename]
+            )
+            t_elapsed = time.time() - t_start
+            logger.info(f"[RAG-SOURCE] Built ChromaDB for {filename}: '{collection_name}' in {t_elapsed:.1f}s")
+            append_debug_log(f"[RAG-SOURCE] {filename}: векторну базу побудовано за {t_elapsed:.0f}с")
+        
+        # Update status: success
+        status = _get_rag_status()
+        status[filename] = {
+            'status': 'ready',
+            'completed_at': datetime.utcnow().isoformat(),
+            'message': f'Готово: {len(chunks)} чанків' if not cache_hit else 'Готово: з кешу',
+            'chunks': len(chunks),
+            'chars': char_count,
+            'collection': collection_name,
+            'cached': cache_hit,
+            'file_path': file_path
+        }
+        _save_rag_status(status)
+        
+        return {'status': 'success', 'filename': filename, 'chunks': len(chunks)}
+        
+    except Exception as e:
+        logger.error(f"[RAG-SOURCE] Failed to process {filename}: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Update status: error
+        status = _get_rag_status()
+        status[filename] = {
+            'status': 'error',
+            'error': str(e),
+            'completed_at': datetime.utcnow().isoformat(),
+            'message': f'Помилка: {str(e)[:100]}',
+            'file_path': file_path
+        }
+        _save_rag_status(status)
+        append_debug_log(f"[RAG-SOURCE] ПОМИЛКА обробки {filename}: {str(e)[:100]}")
+        
+        # Don't retry for source processing (not critical)
+        return {'status': 'error', 'filename': filename, 'error': str(e)}
 
 

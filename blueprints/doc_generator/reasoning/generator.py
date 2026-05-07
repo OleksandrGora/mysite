@@ -256,14 +256,162 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
 #         logger.warning(f"[{task_id}] Failed to load AI response: {e}")
 #         return None
 
-# NOTE: Old architecture functions moved to old_architecture/generator_old.py:
-# - class GeneratedSection
-# - class GeneratedTable  
-# - def build_section_prompt
-# - def build_table_prompt
-# - def generate_section_content
-# - def generate_table_data
-# - def generate_all_content
+# NOTE: Old architecture functions moved to old_architecture/generator_old.py
+# - class GeneratedSection, GeneratedTable, build_section_prompt, etc.
+
+
+def call_llm(
+    prompt: str,
+    task_id: str = "unknown",
+    task_folder: Optional[str] = None,
+    selected_model: Optional[str] = None,
+    response_type: str = "full_doc"
+) -> str:
+    """
+    Send prompt to LLM and return markdown response.
+    
+    This is the shared LLM calling logic used by both FULL and RAG modes.
+    
+    Args:
+        prompt: The complete prompt to send
+        task_id: For logging
+        task_folder: For saving AI responses
+        selected_model: Model name
+        response_type: Label for saved response files
+        
+    Returns:
+        Generated markdown text
+        
+    Raises:
+        ValueError: If response is empty or API fails
+    """
+    actual_model = selected_model or REASONING_MODEL
+    provider = get_model_provider(actual_model)
+    logger.info(f"[{task_id}] Calling LLM ({provider}/{actual_model})...")
+
+    if provider == 'gemini' and not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not configured")
+    elif provider == 'openai' and not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not configured")
+    elif provider == 'deepseek' and not DEEPSEEK_API_KEY:
+        raise ValueError("DEEPSEEK_API_KEY not configured")
+    elif provider not in ['gemini', 'openai', 'deepseek']:
+        raise ValueError(f"Unsupported model provider: {provider}")
+
+    import time
+    max_retries = 3
+    retry_delays = [10, 20, 30]
+
+    for attempt in range(max_retries):
+        try:
+            if attempt == 0:
+                save_ai_response(task_id, response_type, prompt,
+                                 "[PENDING - AI call in progress]", task_folder, actual_model)
+
+            if provider == 'gemini':
+                logger.info(f"[{task_id}] Sending to Gemini (attempt {attempt + 1}/{max_retries})...")
+                response = gemini_client.models.generate_content(
+                    model=actual_model,
+                    contents=prompt,
+                    config={"temperature": TEMPERATURE}
+                )
+                markdown_text = response.text.strip()
+
+            elif provider == 'openai':
+                logger.info(f"[{task_id}] Sending to OpenAI (attempt {attempt + 1}/{max_retries})...")
+                openai_kwargs = get_openai_completion_kwargs(
+                    model_name=actual_model, max_tokens=8000, temperature=TEMPERATURE
+                )
+                response = openai_client.chat.completions.create(
+                    model=actual_model,
+                    messages=[
+                        {"role": "system", "content": "Ти — експерт з генерації документів українською мовою. Створюй якісні, структуровані документи."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    **openai_kwargs
+                )
+                message = response.choices[0].message
+                raw_content = message.content
+                finish_reason = response.choices[0].finish_reason
+                logger.info(f"[{task_id}] OpenAI finish_reason: {finish_reason}")
+
+                if raw_content is not None:
+                    markdown_text = raw_content.strip()
+                elif hasattr(message, 'refusal') and message.refusal:
+                    logger.warning(f"[{task_id}] OpenAI refusal: {message.refusal}")
+                    markdown_text = ""
+                else:
+                    logger.warning(f"[{task_id}] OpenAI empty response. finish_reason={finish_reason}")
+                    markdown_text = ""
+
+            elif provider == 'deepseek':
+                logger.info(f"[{task_id}] Sending to DeepSeek (attempt {attempt + 1}/{max_retries})...")
+                deepseek_kwargs = get_openai_completion_kwargs(
+                    model_name=actual_model, max_tokens=8000, temperature=TEMPERATURE
+                )
+                response = deepseek_client.chat.completions.create(
+                    model=actual_model,
+                    messages=[
+                        {"role": "system", "content": "Ти — експерт з генерації документів українською мовою. Створюй якісні, структуровані документи."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    **deepseek_kwargs
+                )
+                raw_content = response.choices[0].message.content
+                finish_reason = response.choices[0].finish_reason
+                logger.info(f"[{task_id}] DeepSeek finish_reason: {finish_reason}")
+
+                if raw_content is not None:
+                    markdown_text = raw_content.strip()
+                else:
+                    logger.warning(f"[{task_id}] DeepSeek None content. finish_reason={finish_reason}")
+                    markdown_text = ""
+
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
+
+            # Validate response
+            if not markdown_text.strip():
+                error_msg = (
+                    f"Модель {actual_model} повернула порожню відповідь. "
+                    f"Finish reason: {getattr(response.choices[0], 'finish_reason', 'unknown')}. "
+                    f"Можливі причини: модель не підтримує системні промпти, "
+                    f"або відповідь була відфільтрована."
+                )
+                logger.error(f"[{task_id}] {error_msg}")
+                save_ai_response(task_id, response_type, prompt,
+                                 f"[EMPTY RESPONSE] {error_msg}", task_folder, actual_model)
+                raise ValueError(error_msg)
+
+            # Save AI response
+            save_ai_response(task_id, response_type, prompt, markdown_text, task_folder, actual_model)
+
+            # Clean markdown code blocks
+            if markdown_text.startswith('```'):
+                lines = markdown_text.split('\n')
+                if lines[0].startswith('```'):
+                    lines.pop(0)
+                if lines and lines[-1].startswith('```'):
+                    lines.pop()
+                markdown_text = '\n'.join(lines).strip()
+
+            logger.success(f"[{task_id}] LLM response: {len(markdown_text)} chars")
+            gc.collect()
+            return markdown_text
+
+        except Exception as e:
+            error_str = str(e)
+            is_503 = '503' in error_str or 'UNAVAILABLE' in error_str
+
+            if is_503 and attempt < max_retries - 1:
+                delay = retry_delays[attempt]
+                logger.warning(f"[{task_id}] 503 error, retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"[{task_id}] LLM call failed: {e}")
+                gc.collect()
+                raise
 
 
 def generate_document_full(

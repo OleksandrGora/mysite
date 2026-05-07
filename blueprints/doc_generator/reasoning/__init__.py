@@ -12,9 +12,10 @@ OLD ARCHITECTURE (moved to old_architecture/generator_old.py):
 - create_document_plan, DocumentPlan: Document planning
 """
 
-from .generator import generate_document_full, save_ai_response
+from .generator import generate_document_full, save_ai_response, call_llm
 
 __all__ = [
     'generate_document_full',
     'save_ai_response',
+    'call_llm',
 ]

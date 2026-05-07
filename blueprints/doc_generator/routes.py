@@ -764,8 +764,35 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         os.makedirs(output_dir, exist_ok=True)
         temp_docx_path = os.path.join(output_dir, 'temp_result.docx')
         
-        from .reasoning.markdown_to_docx import convert_markdown_to_docx
+        from .reasoning.markdown_to_docx import convert_markdown_to_docx, post_process_tables
         convert_markdown_to_docx(markdown_content, temp_docx_path)
+        
+        # Post-process tables: enforce correct structure from analysis
+        # (headers from `columns`, first column from `first_column_data`, correct row count)
+        try:
+            from .parsers.analysis_parser import parse_analysis
+            parsed = parse_analysis(analysis_text)
+            if parsed.tables:
+                # Build table structures dicts (same as in generator.py)
+                table_structures = []
+                for table in parsed.tables:
+                    t = {
+                        "title": table.title,
+                        "level": table.level,
+                    }
+                    if table.columns:
+                        t["columns"] = table.columns
+                    if table.rows is not None:
+                        t["rows"] = table.rows
+                    if table.first_column_data is not None:
+                        t["first_column_data"] = table.first_column_data
+                    table_structures.append(t)
+                
+                append_debug_log(f"[CELERY] Post-processing {len(table_structures)} tables in DOCX")
+                post_process_tables(temp_docx_path, table_structures, task_id)
+        except Exception as e:
+            logger.warning(f"[{task_id}] Table post-processing warning (non-fatal): {e}")
+            append_debug_log(f"[CELERY] Table post-processing warning: {e}")
         
         # Save final document with proper name
         save_final_document(folder_path, temp_docx_path)
@@ -804,3 +831,5 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         if self.request.retries >= self.max_retries:
             update_task_status(folder_path, 'failed', error_msg)
         raise self.retry(exc=e, countdown=30)
+
+

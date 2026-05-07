@@ -103,7 +103,7 @@ else:
 #         raise
 
 
-def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None):
+def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None, model_name: str = None):
     """
     Зберегти AI відповідь в папку завдання для відлагодження.
     
@@ -113,11 +113,15 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         prompt: Промпт що відправився до AI
         response: Відповідь від AI
         task_folder: Папка завдання (якщо є)
+        model_name: Назва моделі (з сервера або fallback)
     """
+    actual_model = model_name or REASONING_MODEL
+    
     # Debug info: input parameters
     logger.info(f"[DEBUG] Saving AI response for task: {task_id}")
     logger.info(f"[DEBUG] Response type: {response_type}")
     logger.info(f"[DEBUG] Task folder: {task_folder}")
+    logger.info(f"[DEBUG] Model: {actual_model}")
     logger.info(f"[DEBUG] Prompt length: {len(prompt)} chars")
     logger.info(f"[DEBUG] Response length: {len(response)} chars")
     
@@ -137,12 +141,6 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
     logger.info(f"[DEBUG] AI responses directory: {ai_responses_dir}")
     logger.info(f"[DEBUG] AI responses dir exists: {os.path.exists(ai_responses_dir)}")
     
-    # Створити папку для конкретного типу відповіді
-    # type_dir = os.path.join(ai_responses_dir, response_type)
-    # os.makedirs(type_dir, exist_ok=True)
-    # logger.info(f"[DEBUG] Type directory: {type_dir}")
-    # logger.info(f"[DEBUG] Type dir exists: {os.path.exists(type_dir)}")
-    
     try:
         # Зберегти промпт
         prompt_filename = f"{task_id}_{response_type}_prompt.txt"
@@ -152,7 +150,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         with open(prompt_path, 'w', encoding='utf-8') as f:
             f.write(f"TASK ID: {task_id}\n")
             f.write(f"TYPE: {response_type}\n")
-            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write(f"MODEL: {actual_model}\n")
             f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
             f.write("="*50 + "\n")
             f.write(prompt)
@@ -165,7 +163,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         with open(response_path, 'w', encoding='utf-8') as f:
             f.write(f"TASK ID: {task_id}\n")
             f.write(f"TYPE: {response_type}\n")
-            f.write(f"MODEL: {REASONING_MODEL}\n")
+            f.write(f"MODEL: {actual_model}\n")
             f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
             f.write("="*50 + "\n")
             f.write(response)
@@ -381,8 +379,7 @@ def generate_document_full(
             # Save prompt before calling AI (for debugging, even if AI fails)
             if attempt == 0:
                 logger.info(f"[DEBUG] Saving prompt before AI call for full_document")
-                # save_full_document_prompt_response(task_id, prompt, "[PENDING - AI call in progress]", task_folder)
-                save_ai_response(task_id, "full_doc", prompt, "[PENDING - AI call in progress]", task_folder)
+                save_ai_response(task_id, "full_doc", prompt, "[PENDING - AI call in progress]", task_folder, actual_model)
             
             if provider == 'gemini':
                 logger.info(f"[{task_id}] Sending request to Gemini (спроба {attempt + 1}/{max_retries})...")
@@ -416,7 +413,7 @@ def generate_document_full(
             logger.info(f"[DEBUG] Response type: full_document")
             logger.info(f"[DEBUG] Markdown text length: {len(markdown_text)}")
             # save_full_document_prompt_response(task_id, prompt, markdown_text, task_folder)
-            save_ai_response(task_id, "full_doc", prompt, markdown_text, task_folder)
+            save_ai_response(task_id, "full_doc", prompt, markdown_text, task_folder, actual_model)
             logger.info(f"[DEBUG] AI response saved for full_document")
             
             # Clean up common LLM artifacts

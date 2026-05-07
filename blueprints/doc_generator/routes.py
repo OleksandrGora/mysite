@@ -100,7 +100,9 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'email' not in session:
-            if request.is_json or '/api/' in request.path:
+            # File uploads use multipart/form-data, not JSON.
+            # Check path for API routes to always return JSON.
+            if request.is_json or '/api/' in request.path or request.content_type and 'multipart' in request.content_type:
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
@@ -119,16 +121,16 @@ def sanitize_filename(filename):
     """
     Sanitize filename while preserving Unicode characters.
     - Replace spaces with underscores
-    - Remove dangerous characters: / \\ : * ? " < > |
-    - Keep Cyrillic and other Unicode
+    - Remove dangerous filesystem characters: / \\ : * ? " < > |
+    - Keep Cyrillic, parentheses, brackets, commas, plus
     - Limit length to 200 chars
     """
     # Replace spaces with underscores
     filename = filename.replace(' ', '_')
     
-    # Remove dangerous filesystem characters but keep Unicode letters
-    # Allow: letters (any language), digits, underscore, hyphen, dot
-    filename = re.sub(r'[^\w\-\.]', '', filename, flags=re.UNICODE)
+    # Remove dangerous filesystem characters
+    # Allow: letters (any language), digits, underscore, hyphen, dot, parentheses, brackets, comma, plus, equals
+    filename = re.sub(r'[^\w\-\.\(\)\[\]\,\+\=]', '', filename, flags=re.UNICODE)
     
     # Remove multiple consecutive dots
     filename = re.sub(r'\.{2,}', '.', filename)
@@ -901,5 +903,210 @@ def process_source_rag_task(self, file_path: str, filename: str):
         
         # Don't retry for source processing (not critical)
         return {'status': 'error', 'filename': filename, 'error': str(e)}
+
+
+# ============================================================================
+# SOURCE FILES MANAGEMENT - New page with progress visualization
+# ============================================================================
+
+@doc_generator_bp.route('/sources')
+@login_required
+def sources_page():
+    """Page for managing source files with processing visualization."""
+    return render_template('doc_generator/sources.html')
+
+
+@doc_generator_bp.route('/api/sources', methods=['GET'])
+@login_required
+def list_sources():
+    """List all source files with their processing status."""
+    from .source_processor import get_source_status
+    status = get_source_status()
+    
+    # Also return raw file list for UI
+    from .task_manager import get_available_files
+    files = get_available_files('source')
+    
+    return jsonify({
+        'sources': files.get('sources', []),
+        'status': status
+    })
+
+
+@doc_generator_bp.route('/api/sources/upload', methods=['POST'])
+@login_required
+def upload_source_file():
+    """Upload a source file (saves to disk but doesn't process yet)."""
+    logger.info(f"[SOURCES-UPLOAD] Request files: {list(request.files.keys()) if request.files else 'none'}")
+    logger.info(f"[SOURCES-UPLOAD] Content-Type: {request.content_type}")
+    logger.info(f"[SOURCES-UPLOAD] Content-Length: {request.content_length}")
+    
+    if 'file' not in request.files:
+        logger.warning(f"[SOURCES-UPLOAD] No file in request. Files keys: {list(request.files.keys())}")
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    logger.info(f"[SOURCES-UPLOAD] File received: filename='{file.filename}', content_type='{file.content_type}'")
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file extension
+    if not allowed_file(file.filename):
+        logger.warning(f"[SOURCES-UPLOAD] File type not allowed: {file.filename}")
+        return jsonify({'error': f'Тип файлу не підтримується: {file.filename}'}), 400
+    
+    # Sanitize and save
+    safe_name = sanitize_filename(file.filename)
+    target_path = os.path.join(SOURCES_DIR, safe_name)
+    logger.info(f"[SOURCES-UPLOAD] Sanitized filename: {safe_name}")
+    
+    # Handle duplicate
+    if os.path.exists(target_path):
+        safe_name = get_unique_filename(SOURCES_DIR, safe_name)
+        target_path = os.path.join(SOURCES_DIR, safe_name)
+        logger.info(f"[SOURCES-UPLOAD] Duplicate, renamed to: {safe_name}")
+    
+    try:
+        file.save(target_path)
+        file_size = os.path.getsize(target_path)
+        logger.info(f"[SOURCES-UPLOAD] File saved: {target_path} ({file_size} bytes)")
+    except Exception as e:
+        logger.error(f"[SOURCES-UPLOAD] Failed to save file: {e}")
+        return jsonify({'error': f'Помилка збереження файлу: {str(e)}'}), 500
+    
+    logger.info(f"[SOURCES] File uploaded: {safe_name}")
+    append_debug_log(f"[SOURCES] Завантажено файл: {safe_name}")
+    
+    # Initialize status as pending
+    try:
+        from .source_processor import get_source_status, _save_status as save_src_status
+        status = get_source_status()
+        status[safe_name] = {
+            'filename': safe_name,
+            'status': 'pending',
+            'progress': 0,
+            'message': 'Очікування обробки',
+            'uploaded_at': datetime.utcnow().isoformat(),
+            'updated_at': datetime.utcnow().isoformat()
+        }
+        save_src_status(status)
+    except Exception as e:
+        logger.warning(f"[SOURCES] Failed to initialize status for {safe_name}: {e}")
+    
+    return jsonify({
+        'status': 'success',
+        'filename': safe_name,
+        'path': target_path
+    })
+
+
+@doc_generator_bp.route('/api/sources/process', methods=['POST'])
+@login_required
+def process_source():
+    """Start processing (chunking + vectorization) for a source file."""
+    data = request.get_json()
+    if not data or 'filename' not in data:
+        return jsonify({'error': 'filename is required'}), 400
+    
+    filename = data['filename']
+    file_path = os.path.join(SOURCES_DIR, filename)
+    
+    if not os.path.exists(file_path):
+        return jsonify({'error': f'File not found: {filename}'}), 404
+    
+    # Start Celery task
+    from .source_processor import process_source_file_task
+    result = process_source_file_task.delay(file_path, filename)
+    
+    append_debug_log(f"[SOURCES] Запущено обробку джерела: {filename}")
+    
+    return jsonify({
+        'message': 'Processing started',
+        'celery_task_id': result.id,
+        'filename': filename
+    })
+
+
+@doc_generator_bp.route('/api/sources/process_all', methods=['POST'])
+@login_required
+def process_all_pending_sources():
+    """Start processing all pending source files in sequence."""
+    from .source_processor import get_source_status
+    status = get_source_status()
+    
+    pending = [
+        fn for fn, info in status.items()
+        if info.get('status') in ('pending', 'error')
+    ]
+    
+    started = []
+    for filename in pending:
+        file_path = os.path.join(SOURCES_DIR, filename)
+        if os.path.isfile(file_path):
+            from .source_processor import process_source_file_task
+            result = process_source_file_task.delay(file_path, filename)
+            started.append({'filename': filename, 'celery_task_id': result.id})
+    
+    append_debug_log(f"[SOURCES] Запущено обробку {len(started)} джерел")
+    
+    return jsonify({
+        'message': f'Processing started for {len(started)} sources',
+        'started': started
+    })
+
+
+@doc_generator_bp.route('/api/sources/status', methods=['GET'])
+@login_required
+def sources_status():
+    """Get processing status for all source files (for real-time updates)."""
+    from .source_processor import get_source_status
+    status = get_source_status()
+    return jsonify(status)
+
+
+@doc_generator_bp.route('/api/sources/delete', methods=['POST'])
+@login_required
+def delete_source_file():
+    """Delete a source file and its status entry."""
+    data = request.get_json()
+    if not data or 'filename' not in data:
+        return jsonify({'error': 'filename is required'}), 400
+    
+    filename = data['filename']
+    file_path = os.path.join(SOURCES_DIR, filename)
+    
+    # Delete file
+    deleted_file = False
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        deleted_file = True
+    
+    # Delete from status
+    from .source_processor import _load_status, _save_status
+    status = _load_status()
+    if filename in status:
+        del status[filename]
+        _save_status(status)
+    
+    # Also try to delete ChromaDB collection if exists
+    try:
+        from .rag.embedder import Embedder, compute_sources_hash
+        sources_hash = compute_sources_hash([file_path]) if os.path.exists(file_path) else None
+        if sources_hash:
+            embedder = Embedder()
+            if embedder.collection_exists(sources_hash):
+                embedder.delete_collection(sources_hash)
+                logger.info(f"[SOURCES] Deleted ChromaDB collection for {filename}")
+    except Exception as e:
+        logger.warning(f"[SOURCES] Failed to delete ChromaDB collection for {filename}: {e}")
+    
+    append_debug_log(f"[SOURCES] Видалено джерело: {filename}")
+    
+    return jsonify({
+        'status': 'success',
+        'filename': filename,
+        'file_deleted': deleted_file
+    })
 
 

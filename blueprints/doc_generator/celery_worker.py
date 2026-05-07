@@ -14,7 +14,10 @@ celery_app = Celery(
     'doc_generator',
     broker=os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0'),
     backend=os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0'),
-    include=['blueprints.doc_generator.routes']
+    include=[
+        'blueprints.doc_generator.routes',
+        'blueprints.doc_generator.source_processor'
+    ]
 )
 
 celery_app.conf.update(

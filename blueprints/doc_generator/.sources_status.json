@@ -1,0 +1,41 @@
+{
+  "Лабораторна робота 8.pdf": {
+    "filename": "Лабораторна робота 8.pdf",
+    "status": "ready",
+    "progress": 100,
+    "message": "Готово: 6 чанків, 12377 символів",
+    "updated_at": "2026-05-07T18:51:42.959607",
+    "started_at": "2026-05-07T18:51:21.648074",
+    "char_count": 12377,
+    "word_count": 0,
+    "chunks": 6,
+    "collection": "rag_2a47467eab5bb0d9",
+    "cached": false
+  },
+  "РЕДФОРД.pdf": {
+    "filename": "РЕДФОРД.pdf",
+    "status": "ready",
+    "progress": 100,
+    "message": "Готово: 1 чанків, 1619 символів",
+    "uploaded_at": "2026-05-07T19:11:22.912568",
+    "updated_at": "2026-05-07T19:11:26.038698",
+    "started_at": "2026-05-07T19:11:23.053095",
+    "char_count": 1619,
+    "word_count": 0,
+    "chunks": 1,
+    "collection": "rag_5dcf0e48decfc05c",
+    "cached": false
+  },
+  "gonchar9.doc": {
+    "filename": "gonchar9.doc",
+    "status": "processing",
+    "progress": 35,
+    "message": "Створення ембеддингів...",
+    "uploaded_at": "2026-05-07T19:38:25.185847",
+    "updated_at": "2026-05-07T19:38:26.222480",
+    "started_at": "2026-05-07T19:38:25.304128",
+    "char_count": 121613,
+    "word_count": 0,
+    "chunks": 40
+  }
+}

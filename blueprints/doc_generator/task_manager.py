@@ -297,7 +297,7 @@ def get_available_files(file_type: str = 'all') -> Dict[str, List[str]]:
     if file_type in ['source', 'all']:
         result['sources'] = [
             f for f in os.listdir(SOURCES_DIR)
-            if os.path.isfile(os.path.join(SOURCES_DIR, f))
+            if os.path.isfile(os.path.join(SOURCES_DIR, f)) and not f.startswith('.')
         ]
     
     return result

@@ -10,7 +10,7 @@ import os
 import json
 import hashlib
 import time
-from typing import List, Optional
+from typing import List, Optional, Callable
 from pathlib import Path
 import requests
 from loguru import logger
@@ -181,6 +181,115 @@ class Embedder:
                 metadatas=metadatas[i:end],
                 documents=documents[i:end]
             )
+
+        t_chroma = time.time() - t_start
+        logger.info(f"ChromaDB collection '{collection_name}': {len(chunks)} docs stored in {t_chroma:.2f}s")
+
+        return collection_name
+
+    def build_with_progress(
+        self,
+        chunks: List[Chunk],
+        sources_hash: str,
+        source_files: List[str],
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> str:
+        """
+        Build ChromaDB collection from chunks with progress reporting.
+        
+        Args:
+            chunks: List of Chunk objects
+            sources_hash: Hash of source files for caching
+            source_files: List of source file names (for metadata)
+            progress_callback: Optional callable(progress_0to1, message)
+            
+        Returns:
+            Collection name
+        """
+        collection_name = self.get_collection_name(sources_hash)
+        texts = [c.text for c in chunks]
+
+        if not texts:
+            raise ValueError("No chunks to embed")
+
+        # Generate embeddings via Ollama (0% → 80%)
+        logger.info(f"Generating embeddings for {len(texts)} chunks...")
+        t_start = time.time()
+
+        if progress_callback:
+            progress_callback(0.05, "Створення ембеддингів...")
+
+        embeddings = self._generate_embeddings(texts)
+
+        t_embed = time.time() - t_start
+        logger.info(f"Embeddings generated: {len(embeddings)} vectors in {t_embed:.2f}s")
+
+        if progress_callback:
+            progress_callback(0.80, f"Ембеддинги створено: {len(embeddings)} векторів")
+
+        # Store in ChromaDB (80% → 100%)
+        t_start = time.time()
+
+        # Prepare data
+        ids = []
+        metadatas = []
+        documents = []
+
+        for i, chunk in enumerate(chunks):
+            chunk_hash = hashlib.md5(chunk.text.encode()).hexdigest()[:12]
+            chunk_id = f"{chunk.source_file}_{chunk.chunk_index}_{chunk_hash}"
+
+            ids.append(chunk_id)
+            metadatas.append({
+                'source': chunk.source_file,
+                'chunk_index': chunk.chunk_index,
+                'word_count': chunk.word_count
+            })
+            documents.append(chunk.text)
+
+        if progress_callback:
+            progress_callback(0.85, "Збереження в векторну базу...")
+
+        # Delete old collection if exists
+        try:
+            self.client.delete_collection(collection_name)
+        except:
+            pass
+
+        # Create new collection
+        collection = self.client.create_collection(
+            name=collection_name,
+            metadata={
+                'sources_hash': sources_hash,
+                'created_at': time.strftime('%Y-%m-%dT%H:%M:%S'),
+                'source_files': json.dumps(source_files, ensure_ascii=False),
+                'total_chunks': len(chunks),
+                'embedding_model': EMBEDDING_MODEL,
+                'chunk_params': json.dumps({
+                    'mode': 'paragraph'
+                })
+            }
+        )
+
+        # Add in batches
+        batch_size = 100
+        total_batches = max(1, (len(ids) + batch_size - 1) // batch_size)
+        for i in range(0, len(ids), batch_size):
+            end = i + batch_size
+            collection.add(
+                ids=ids[i:end],
+                embeddings=embeddings[i:end],
+                metadatas=metadatas[i:end],
+                documents=documents[i:end]
+            )
+
+            if progress_callback and total_batches > 1:
+                batch_progress = (i // batch_size + 1) / total_batches
+                overall = 0.85 + batch_progress * 0.15
+                progress_callback(overall, f"Збереження в базу... ({i // batch_size + 1}/{total_batches})")
+
+        if progress_callback:
+            progress_callback(1.0, "Векторна база готова")
 
         t_chroma = time.time() - t_start
         logger.info(f"ChromaDB collection '{collection_name}': {len(chunks)} docs stored in {t_chroma:.2f}s")

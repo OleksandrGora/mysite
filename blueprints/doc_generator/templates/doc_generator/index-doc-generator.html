@@ -372,6 +372,120 @@
         .toast.success { background: #4caf50; }
         .toast.error { background: #f44336; }
         .toast.info { background: #2196f3; }
+        
+        /* Sources Section on Main Page */
+        .sources-main-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .sources-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .source-main-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            transition: background 0.15s;
+        }
+        .source-main-item:hover { background: #f9f9f9; }
+        .source-main-item .source-info {
+            flex: 1;
+            margin-left: 10px;
+        }
+        .source-main-item .source-name {
+            font-size: 0.95em;
+            color: #333;
+        }
+        .source-main-item .source-status {
+            font-size: 0.8em;
+            color: #888;
+        }
+        .source-item-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .sources-list-main {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        .sources-list-main .empty-msg {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+        .src-badge {
+            display: inline-block;
+            font-size: 0.75em;
+            padding: 1px 7px;
+            border-radius: 8px;
+            margin-left: 6px;
+        }
+        .src-badge-ready { background: #e8f5e9; color: #2e7d32; }
+        .src-badge-processing { background: #e3f2fd; color: #1565c0; }
+        .src-badge-pending { background: #fff3e0; color: #e65100; }
+        .src-badge-error { background: #ffebee; color: #c62828; }
+        
+        /* Upload area compact */
+        .upload-compact {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .upload-compact .btn-upload {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 8px 16px;
+            background: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .upload-compact .btn-upload:hover { background: #1565c0; }
+        .upload-compact .btn-upload input[type="file"] { display: none; }
+        
+        /* Task checkboxes for sources */
+        .task-source-checkboxes {
+            max-height: 180px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 8px;
+        }
+        .task-source-item {
+            display: flex;
+            align-items: center;
+            padding: 5px 6px;
+        }
+        .task-source-item label {
+            margin: 0 0 0 8px;
+            font-weight: 400;
+            font-size: 0.95em;
+            cursor: pointer;
+            flex: 1;
+        }
+        .task-source-item input[type="checkbox"] {
+            width: 17px;
+            height: 17px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -402,6 +516,31 @@
         </div>
     </div>
     
+    <!-- Sources Section (independent of tasks) -->
+    <div class="sources-main-section">
+        <div class="sources-header">
+            <h2>📂 Джерела</h2>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-secondary" onclick="openSourcesPage()" title="Докладне керування джерелами">
+                    📋 Керування
+                </button>
+                <button class="btn-secondary" onclick="refreshMainSources()" title="Оновити статус джерел">
+                    🔄
+                </button>
+            </div>
+        </div>
+        <div class="upload-compact">
+            <label class="btn-upload">
+                📄 Завантажити джерело
+                <input type="file" id="main-file-input" accept=".docx,.pdf,.txt,.ppt,.pptx,.doc,.xls,.xlsx" onchange="uploadMainSource(event)">
+            </label>
+            <span style="font-size: 0.85em; color: #888;">.docx, .pdf, .txt, .pptx, .xlsx</span>
+        </div>
+        <div id="main-sources-list" class="sources-list-main">
+            <div class="empty-msg">Немає джерел. Завантажте файл вище.</div>
+        </div>
+    </div>
+
     <!-- Debug Log -->
     <div class="debug-section">
         <h2>Журнал подій</h2>
@@ -463,9 +602,16 @@
                     
                     <div class="form-group">
                         <label>Файли джерел</label>
-                        <button class="btn-secondary" onclick="uploadFile('source')">Завантажити джерело</button>
-                        <div id="source-files-list" class="source-files-list">
-                            <p style="color: #999; text-align: center;">Немає джерел</p>
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <button class="btn-secondary" onclick="openSourcesPage()" title="Керувати джерелами та обробкою">
+                                📂 Керування джерелами
+                            </button>
+                            <button class="btn-secondary" onclick="refreshTaskSourceList()" title="Оновити список джерел">
+                                🔄
+                            </button>
+                        </div>
+                        <div id="task-source-checkboxes" class="task-source-checkboxes">
+                            <div style="color: #999; text-align: center; padding: 10px;">Немає джерел</div>
                         </div>
                     </div>
                     
@@ -535,7 +681,34 @@
             loadModelSelection(); // Load selected model
             setInterval(loadTasks, 5000); // Refresh every 5 seconds
             setInterval(loadDebugLog, 2000); // Refresh debug log every 2 seconds
+            // Periodically refresh main sources list (but less often)
+            setInterval(() => {
+                fetch(`${API_BASE}/api/sources/status`).then(r => r.ok ? r.json() : {}).then(renderMainSourcesStatus).catch(() => {});
+            }, 4000);
         });
+        
+        // Helper to update just the status badges on main sources (without re-fetching file list)
+        function renderMainSourcesStatus(statusData) {
+            if (!availableFiles.sources || availableFiles.sources.length === 0) return;
+            const container = document.getElementById('main-sources-list');
+            if (!container) return;
+            container.innerHTML = availableFiles.sources.map(file => {
+                const info = statusData[file] || {};
+                const st = info.status || 'pending';
+                let label = '';
+                let cls = '';
+                if (st === 'ready') { label = '✅ Готово'; cls = 'src-badge-ready'; }
+                else if (st === 'processing') { label = '⏳ Обробка'; cls = 'src-badge-processing'; }
+                else if (st === 'error') { label = '❌ ' + (info.message || 'Помилка'); cls = 'src-badge-error'; }
+                else { label = '⏳ Очікування'; cls = 'src-badge-pending'; }
+                return `<div class="source-main-item">
+                    <div class="source-info">
+                        <span class="source-name">${escapeHtml(file)}</span>
+                        <span class="src-badge ${cls}">${label}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
         
         // Model selection — зберігається лише на сервері
         async function loadModelSelection() {
@@ -776,23 +949,165 @@
                 templateSelect.innerHTML += `<option value="${file}">${file}</option>`;
             });
             
-            renderSourceFilesList();
+            renderMainSources();
+            renderTaskSourceCheckboxes();
         }
         
-        function renderSourceFilesList() {
-            const container = document.getElementById('source-files-list');
+        // ── Main Page Sources (independent of tasks) ─────────────────────
+        
+        function renderMainSources() {
+            const container = document.getElementById('main-sources-list');
             
-            if (availableFiles.sources.length === 0) {
-                container.innerHTML = '<p style="color: #999; text-align: center;">Немає джерел</p>';
+            if (!availableFiles.sources || availableFiles.sources.length === 0) {
+                container.innerHTML = '<div class="empty-msg">Немає джерел. Завантажте файл вище.</div>';
                 return;
             }
             
-            container.innerHTML = availableFiles.sources.map(file => `
-                <div class="source-file-item">
-                    <input type="checkbox" value="${file}" id="source-${file}">
-                    <label for="source-${file}">${file}</label>
-                </div>
-            `).join('');
+            fetch(`${API_BASE}/api/sources/status`).then(r => r.ok ? r.json() : {}).then(statusData => {
+                container.innerHTML = availableFiles.sources.map(file => {
+                    const info = statusData[file] || {};
+                    const st = info.status || 'pending';
+                    let label = '';
+                    let cls = '';
+                    if (st === 'ready') { label = '✅ Готово'; cls = 'src-badge-ready'; }
+                    else if (st === 'processing') { label = '⏳ Обробка'; cls = 'src-badge-processing'; }
+                    else if (st === 'error') { label = '❌ ' + (info.message || 'Помилка'); cls = 'src-badge-error'; }
+                    else { label = '⏳ Очікування'; cls = 'src-badge-pending'; }
+                    
+                    return `<div class="source-main-item">
+                        <div class="source-info">
+                            <span class="source-name">${escapeHtml(file)}</span>
+                            <span class="src-badge ${cls}">${label}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+            }).catch(() => {
+                container.innerHTML = availableFiles.sources.map(file => 
+                    `<div class="source-main-item">
+                        <div class="source-info">
+                            <span class="source-name">${escapeHtml(file)}</span>
+                        </div>
+                    </div>`
+                ).join('');
+            });
+        }
+        
+        async function uploadMainSource(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                showToast(`Завантаження ${file.name}...`, 'info');
+                log(`Завантаження файлу: ${file.name} (${(file.size/1024).toFixed(1)} КБ)`, 'info');
+                
+                const response = await fetch(`${API_BASE}/api/sources/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errMsg;
+                    try { const j = JSON.parse(text); errMsg = j.error || text; }
+                    catch(e) { errMsg = `HTTP ${response.status}: ${text.substring(0, 100)}`; }
+                    showToast(`Помилка: ${errMsg}`, 'error');
+                    log(`Помилка завантаження: ${errMsg}`, 'error');
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showToast(`Файл ${result.filename} завантажено`, 'success');
+                    log(`Завантажено джерело: ${result.filename}`, 'success');
+                    
+                    // Refresh file lists
+                    await loadAvailableFiles();
+                    
+                    // Auto-start processing
+                    const procResp = await fetch(`${API_BASE}/api/sources/process`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: result.filename })
+                    });
+                    const procResult = await procResp.json();
+                    if (procResult.message) {
+                        log(`Обробка запущена: ${result.filename}`, 'info');
+                    }
+                } else {
+                    showToast(`Помилка: ${result.error || 'Невідома'}`, 'error');
+                }
+            } catch (e) {
+                log(`Помилка завантаження: ${e.message}`, 'error');
+                showToast(`Помилка завантаження: ${e.message}`, 'error');
+            }
+            
+            // Reset the input so same file can be re-uploaded
+            event.target.value = '';
+        }
+        
+        function refreshMainSources() {
+            loadAvailableFiles();
+            showToast('Список джерел оновлено', 'success');
+        }
+        
+        function openSourcesPage() {
+            window.open(`${API_BASE}/sources`, '_blank');
+        }
+        
+        // ── Task Modal Source Checkboxes ─────────────────────────────────
+        
+        function renderTaskSourceCheckboxes() {
+            const container = document.getElementById('task-source-checkboxes');
+            const prevSelected = currentTask ? (currentTask.source_files || []) : [];
+            
+            if (!availableFiles.sources || availableFiles.sources.length === 0) {
+                container.innerHTML = '<div style="color: #999; text-align: center; padding: 10px;">Немає джерел</div>';
+                return;
+            }
+            
+            fetch(`${API_BASE}/api/sources/status`).then(r => r.ok ? r.json() : {}).then(statusData => {
+                container.innerHTML = availableFiles.sources.map(file => {
+                    const info = statusData[file] || {};
+                    const st = info.status || 'pending';
+                    let badge = '';
+                    if (st === 'ready') badge = '✅';
+                    else if (st === 'processing') badge = '⏳';
+                    else if (st === 'error') badge = '❌';
+                    else badge = '⏳';
+                    
+                    const checked = prevSelected.includes(file) ? 'checked' : '';
+                    
+                    return `<div class="task-source-item">
+                        <input type="checkbox" value="${escapeHtml(file)}" id="tsrc-${escapeHtml(file)}" ${checked}>
+                        <label for="tsrc-${escapeHtml(file)}">${escapeHtml(file)} ${badge}</label>
+                    </div>`;
+                }).join('');
+            }).catch(() => {
+                container.innerHTML = availableFiles.sources.map(file => {
+                    const checked = prevSelected.includes(file) ? 'checked' : '';
+                    return `<div class="task-source-item">
+                        <input type="checkbox" value="${escapeHtml(file)}" id="tsrc-${escapeHtml(file)}" ${checked}>
+                        <label for="tsrc-${escapeHtml(file)}">${escapeHtml(file)}</label>
+                    </div>`;
+                }).join('');
+            });
+        }
+        
+        function refreshTaskSourceList() {
+            renderTaskSourceCheckboxes();
+            showToast('Список джерел оновлено', 'success');
+        }
+        
+        function getSelectedTaskSources() {
+            const selected = [];
+            document.querySelectorAll('#task-source-checkboxes input[type="checkbox"]:checked').forEach(cb => {
+                selected.push(cb.value);
+            });
+            return selected;
         }
         
         // Modal functions
@@ -828,6 +1143,9 @@
                     document.getElementById('analysis-prompt').value = task.analysis_prompt || '';
                     document.getElementById('generation-prompt').value = task.generation_prompt || '';
                     document.getElementById('template-file').value = task.template_file || '';
+                    
+                    // Render source checkboxes with per-task selection restored
+                    renderTaskSourceCheckboxes();
                     
                     // Load analysis if exists
                     if (task.analysis_content) {
@@ -879,7 +1197,7 @@
                 }
             } else {
                 // New task
-                currentTask = null;
+                currentTask = { source_files: [] };
                 title.textContent = 'Нове завдання';
                 document.getElementById('task-id').value = '';
                 document.getElementById('analysis-prompt').value = '';
@@ -889,6 +1207,7 @@
                 document.getElementById('analysis-result-container').style.display = 'none';
                 document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
                 deleteBtn.style.display = 'none';
+                renderTaskSourceCheckboxes();
             }
             
             modal.classList.add('active');
@@ -1149,11 +1468,8 @@
                 return;
             }
             
-            // Get selected sources
-            const selectedSources = [];
-            document.querySelectorAll('#source-files-list input:checked').forEach(cb => {
-                selectedSources.push(cb.value);
-            });
+            // Get selected sources from task checkboxes
+            const selectedSources = getSelectedTaskSources();
             
             // RAG mode settings
             const useRag = document.getElementById('use-rag').checked;

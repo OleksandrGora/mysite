@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Керування джерелами</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 { margin-bottom: 20px; color: #333; }
+        h2 { margin: 20px 0 15px; color: #555; font-size: 1.3em; }
+
+        .main-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            background: #1976d2;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background: #1565c0; }
+        .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-secondary:hover { background: #e0e0e0; }
+
+        .btn-danger {
+            background: #d32f2f;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-danger:hover { background: #c62828; }
+        .btn-danger:disabled { background: #ccc; cursor: not-allowed; }
+
+        .btn-success {
+            background: #388e3c;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-success:hover { background: #2e7d32; }
+
+        /* Upload Section */
+        .upload-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #1976d2;
+            background: #f0f7ff;
+        }
+        .upload-area.dragover {
+            border-color: #1976d2;
+            background: #e3f2fd;
+        }
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        .upload-text {
+            color: #666;
+            font-size: 1.1em;
+        }
+        .upload-hint {
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        /* Sources List */
+        .sources-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .sources-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .source-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            transition: background 0.2s;
+        }
+        .source-card:hover { background: #fafafa; }
+
+        .source-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .source-name {
+            font-weight: 600;
+            font-size: 1.05em;
+            color: #333;
+            word-break: break-all;
+        }
+        .source-meta {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 3px;
+        }
+        .source-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+        .status-pending { background: #fff3e0; color: #e65100; }
+        .status-processing { background: #e3f2fd; color: #1565c0; }
+        .status-ready { background: #e8f5e9; color: #2e7d32; }
+        .status-error { background: #ffebee; color: #c62828; }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 8px;
+        }
+        .progress-bar-outer {
+            width: 100%;
+            height: 22px;
+            background: #ffcdd2; /* red-ish background */
+            border-radius: 11px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, #66bb6a, #43a047); /* green gradient */
+            border-radius: 11px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+        .progress-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            font-weight: 600;
+            color: #333;
+        }
+        .progress-message {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        /* Status indicator for pending */
+        .status-pending-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #e65100;
+            font-size: 0.9em;
+            margin-top: 8px;
+        }
+        .status-pending-indicator .clock-icon {
+            font-size: 1.2em;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        .empty-state-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        /* Loading spinner */
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #1976d2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 500;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background: #4caf50; }
+        .toast.error { background: #f44336; }
+        .toast.info { background: #2196f3; }
+
+        /* Back button */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: #1976d2;
+            text-decoration: none;
+            font-size: 0.95em;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .source-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .source-actions {
+                align-self: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <a href="/doc-generator/" class="back-link">← Назад до генератора</a>
+            <h1>Керування джерелами</h1>
+        </div>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="upload-section">
+        <h2>Завантажити джерело</h2>
+        <div class="upload-area" id="upload-area">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">Натисніть або перетягніть файл сюди</div>
+            <div class="upload-hint">Підтримуються: .docx, .pdf, .txt, .pptx, .xlsx</div>
+        </div>
+        <input type="file" id="file-input" accept=".docx,.pdf,.txt,.ppt,.pptx,.doc,.xls,.xlsx" style="display: none;" multiple>
+    </div>
+
+    <!-- Sources List -->
+    <div class="sources-section">
+        <div class="sources-toolbar">
+            <h2 style="margin: 0;">Завантажені джерела</h2>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-secondary" id="btn-refresh" onclick="loadSources()">
+                    🔄 Оновити
+                </button>
+                <button class="btn-primary" id="btn-process-all" onclick="processAll()">
+                    ⚡ Обробити всі
+                </button>
+            </div>
+        </div>
+        <div id="sources-container">
+            <div class="empty-state">
+                <div class="empty-state-icon">📂</div>
+                <p>Немає завантажених джерел</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const API_BASE = '/doc-generator';
+
+        // ── Initialize ─────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSources();
+            // Poll status every 2 seconds
+            setInterval(loadSources, 2000);
+            setupDragDrop();
+        });
+
+        // ── Drag & Drop ────────────────────────────────────────────────────
+        function setupDragDrop() {
+            const area = document.getElementById('upload-area');
+            const input = document.getElementById('file-input');
+
+            area.addEventListener('click', () => input.click());
+
+            area.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                area.classList.add('dragover');
+            });
+            area.addEventListener('dragleave', () => {
+                area.classList.remove('dragover');
+            });
+            area.addEventListener('drop', (e) => {
+                e.preventDefault();
+                area.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    uploadFiles(files);
+                }
+            });
+
+            input.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    uploadFiles(e.target.files);
+                }
+                input.value = '';
+            });
+        }
+
+        // ── Upload ─────────────────────────────────────────────────────────
+        async function uploadFiles(files) {
+            for (const file of files) {
+                await uploadSingleFile(file);
+            }
+        }
+
+        async function uploadSingleFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showToast(`Завантаження ${file.name}...`, 'info');
+                const response = await fetch(`${API_BASE}/api/sources/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const text = await response.text();
+                    let errMsg;
+                    try { const j = JSON.parse(text); errMsg = j.error || text; }
+                    catch(e) { errMsg = `HTTP ${response.status}: ${text.substring(0, 100)}`; }
+                    showToast(`Помилка: ${errMsg}`, 'error');
+                    return;
+                }
+                
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast(`Файл ${result.filename} завантажено`, 'success');
+                    await loadSources();
+                    // Auto-start processing
+                    await startProcessing(result.filename);
+                } else {
+                    showToast(`Помилка: ${result.error || 'Невідома помилка'}`, 'error');
+                }
+            } catch (e) {
+                showToast(`Помилка завантаження: ${e.message}`, 'error');
+            }
+        }
+
+        // ── Process ────────────────────────────────────────────────────────
+        async function startProcessing(filename) {
+            try {
+                const response = await fetch(`${API_BASE}/api/sources/process`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                const result = await response.json();
+                if (result.message) {
+                    showToast(`Обробка ${filename} запущена`, 'info');
+                }
+            } catch (e) {
+                showToast(`Помилка запуску обробки: ${e.message}`, 'error');
+            }
+        }
+
+        async function processAll() {
+            const btn = document.getElementById('btn-process-all');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Запуск...';
+            try {
+                const response = await fetch(`${API_BASE}/api/sources/process_all`, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                showToast(result.message || 'Обробку запущено', 'success');
+            } catch (e) {
+                showToast(`Помилка: ${e.message}`, 'error');
+            }
+            btn.disabled = false;
+            btn.innerHTML = '⚡ Обробити всі';
+        }
+
+        // ── Delete ─────────────────────────────────────────────────────────
+        async function deleteSource(filename) {
+            if (!confirm(`Видалити джерело "${filename}"?`)) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/sources/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    showToast(`Видалено: ${filename}`, 'success');
+                    await loadSources();
+                }
+            } catch (e) {
+                showToast(`Помилка видалення: ${e.message}`, 'error');
+            }
+        }
+
+        // ── Load Sources ───────────────────────────────────────────────────
+        async function loadSources() {
+            try {
+                const response = await fetch(`${API_BASE}/api/sources/status`);
+                if (!response.ok) return;
+                const statusData = await response.json();
+                renderSources(statusData);
+            } catch (e) {
+                console.error('Failed to load sources:', e);
+            }
+        }
+
+        // ── Render ─────────────────────────────────────────────────────────
+        function renderSources(statusData) {
+            const container = document.getElementById('sources-container');
+            const filenames = Object.keys(statusData);
+
+            if (filenames.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <p>Немає завантажених джерел</p>
+                    </div>`;
+                return;
+            }
+
+            // Sort: processing first, then pending, then error, then ready
+            const order = { 'processing': 0, 'pending': 1, 'error': 2, 'ready': 3 };
+            filenames.sort((a, b) => {
+                const sa = statusData[a] || {};
+                const sb = statusData[b] || {};
+                return (order[sa.status] || 9) - (order[sb.status] || 9);
+            });
+
+            container.innerHTML = filenames.map(filename => {
+                const info = statusData[filename] || {};
+                const status = info.status || 'pending';
+                const progress = info.progress || 0;
+                const message = info.message || '';
+                const chunks = info.chunks || 0;
+                const chars = info.char_count || 0;
+
+                return `
+                    <div class="source-card">
+                        <div class="source-header">
+                            <div>
+                                <div class="source-name">${escapeHtml(filename)}</div>
+                                <div class="source-meta">
+                                    ${status === 'ready' && chunks ? `${chunks} чанків, ${formatChars(chars)}` : ''}
+                                    ${status === 'ready' && info.cached ? '(з кешу)' : ''}
+                                </div>
+                            </div>
+                            <div class="source-actions">
+                                ${status === 'pending' ? `
+                                    <button class="btn-success" onclick="startProcessing('${escapeHtml(filename)}')">
+                                        ▶ Обробити
+                                    </button>
+                                ` : ''}
+                                ${status === 'error' ? `
+                                    <button class="btn-success" onclick="startProcessing('${escapeHtml(filename)}')">
+                                        🔄 Повторити
+                                    </button>
+                                ` : ''}
+                                ${status === 'processing' ? `
+                                    <button class="btn-secondary" disabled>
+                                        <span class="loading"></span>
+                                    </button>
+                                ` : ''}
+                                <button class="btn-danger" onclick="deleteSource('${escapeHtml(filename)}')">
+                                    🗑
+                                </button>
+                            </div>
+                        </div>
+
+                        ${status === 'processing' ? `
+                            <div class="progress-container">
+                                <div class="progress-bar-outer">
+                                    <div class="progress-bar-inner" style="width: ${progress}%"></div>
+                                    <div class="progress-text">${progress}%</div>
+                                </div>
+                                <div class="progress-message">${escapeHtml(message)}</div>
+                            </div>
+                        ` : ''}
+
+                        ${status === 'pending' ? `
+                            <div class="status-pending-indicator">
+                                <span class="clock-icon">⏳</span>
+                                <span>Очікування обробки</span>
+                            </div>
+                        ` : ''}
+
+                        ${status === 'ready' ? `
+                            <div style="margin-top: 8px;">
+                                <span class="status-badge status-ready">✅ Готово</span>
+                            </div>
+                        ` : ''}
+
+                        ${status === 'error' ? `
+                            <div style="margin-top: 8px;">
+                                <span class="status-badge status-error">❌ Помилка</span>
+                                <div style="font-size: 0.85em; color: #c62828; margin-top: 4px;">
+                                    ${escapeHtml(message)}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ── Helpers ────────────────────────────────────────────────────────
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatChars(count) {
+            if (!count) return '';
+            if (count < 1000) return `${count} символів`;
+            return `${(count / 1000).toFixed(1)}к символів`;
+        }
+
+        // ── Toast ──────────────────────────────────────────────────────────
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+    </script>
+</body>
+</html>

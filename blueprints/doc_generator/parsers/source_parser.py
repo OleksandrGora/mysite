@@ -208,9 +208,212 @@ def parse_pdf(file_path: str, force_ocr: bool = False) -> str:
     return text
 
 
+def parse_doc(file_path: str) -> str:
+    """
+    Extract text from old .doc file using olefile.
+    
+    Word .doc (OLE2) stores text as UTF-16LE in the 'WordDocument' stream,
+    but mixed with binary formatting data. We extract text by finding
+    runs of valid characters.
+    
+    Args:
+        file_path: Path to .doc file
+        
+    Returns:
+        Extracted text
+    """
+    logger.info(f"Parsing DOC (olefile): {file_path}")
+    
+    try:
+        import olefile
+        
+        ole = olefile.OleFileIO(file_path)
+        word_doc = ole.openstream('WordDocument')
+        data = word_doc.read()
+        ole.close()
+        
+        # Decode full stream as UTF-16LE
+        raw = data.decode('utf-16-le', errors='replace')
+        
+        # Find the longest contiguous region of printable text
+        # Ukrainian + English letters, digits, spaces, basic punctuation
+        def is_printable(c):
+            return (c.isalpha() or c.isspace() or c.isdigit() or 
+                    c in '.,;:!?\'"„”“’–—()-—±×÷°′″№«»' or
+                    ord(c) in range(0x0400, 0x0500))  # Cyrillic range
+        
+        # Find text regions (sequential printable chars)
+        regions = []
+        current_start = None
+        current_len = 0
+        
+        for i, c in enumerate(raw):
+            if is_printable(c):
+                if current_start is None:
+                    current_start = i
+                    current_len = 1
+                else:
+                    current_len += 1
+            else:
+                if current_len >= 20:  # Only keep regions of 20+ chars
+                    regions.append((current_start, current_len, raw[current_start:current_start+current_len]))
+                current_start = None
+                current_len = 0
+        
+        if current_len >= 20:
+            regions.append((current_start, current_len, raw[current_start:current_start+current_len]))
+        
+        if not regions:
+            raise ValueError("Не вдалося знайти текст у .doc файлі")
+        
+        # Take the largest region (should be the main document text)
+        regions.sort(key=lambda r: r[1], reverse=True)
+        main_text = regions[0][2]
+        
+        # Clean up: remove leading/trailing non-text
+        # Split into lines, remove empty/short lines
+        lines = main_text.split('\n')
+        lines = [l.strip() for l in lines if len(l.strip()) > 3]
+        text = '\n'.join(lines)
+        
+        if len(text) < 50:
+            raise ValueError("Не вдалося витягти текст з .doc файлу")
+        
+        logger.info(f"DOC parsed via olefile: {len(text)} chars (from {len(regions)} regions)")
+        return clean_text(text)
+        
+    except ImportError:
+        raise ValueError("olefile не знайдено. Встановіть: pip install olefile")
+    except Exception as e:
+        raise ValueError(f"Помилка обробки .doc файлу: {e}")
+
+
+def parse_txt(file_path: str) -> str:
+    """
+    Extract text from plain text file.
+    
+    Args:
+        file_path: Path to .txt file
+        
+    Returns:
+        Extracted text
+    """
+    logger.info(f"Parsing TXT: {file_path}")
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+    except UnicodeDecodeError:
+        # Try cp1251 for Cyrillic text files
+        with open(file_path, 'r', encoding='cp1251') as f:
+            text = f.read()
+    
+    cleaned = clean_text(text)
+    logger.info(f"TXT parsed: {len(cleaned)} chars")
+    return cleaned
+
+
+def parse_pptx(file_path: str) -> str:
+    """
+    Extract text from PowerPoint .pptx file.
+    
+    Args:
+        file_path: Path to .pptx file
+        
+    Returns:
+        Extracted text from all slides
+    """
+    logger.info(f"Parsing PPTX: {file_path}")
+    
+    try:
+        from pptx import Presentation
+        
+        prs = Presentation(file_path)
+        paragraphs = []
+        
+        for slide_num, slide in enumerate(prs.slides, 1):
+            slide_texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_texts.append(text)
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                        if row_text:
+                            slide_texts.append(' | '.join(row_text))
+            
+            if slide_texts:
+                paragraphs.append(f"[Слайд {slide_num}]\n" + '\n'.join(slide_texts))
+        
+        full_text = '\n\n'.join(paragraphs)
+        cleaned = clean_text(full_text)
+        
+        logger.info(f"PPTX parsed: {len(cleaned)} chars from {len(prs.slides)} slides")
+        return cleaned
+        
+    except ImportError:
+        raise ValueError("python-pptx не знайдено. Встановіть: pip install python-pptx")
+    except Exception as e:
+        raise ValueError(f"Помилка обробки .pptx файлу: {e}")
+
+
+def parse_xlsx(file_path: str) -> str:
+    """
+    Extract text from Excel .xlsx file.
+    
+    Args:
+        file_path: Path to .xlsx file
+        
+    Returns:
+        Extracted text from all sheets
+    """
+    logger.info(f"Parsing XLSX: {file_path}")
+    
+    try:
+        from openpyxl import load_workbook
+        
+        wb = load_workbook(file_path, read_only=True, data_only=True)
+        sheets_text = []
+        
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows_text = []
+            
+            for row in ws.iter_rows(values_only=True):
+                row_text = [str(cell).strip() for cell in row if cell is not None and str(cell).strip()]
+                if row_text:
+                    rows_text.append(' | '.join(row_text))
+            
+            if rows_text:
+                sheets_text.append(f"[Аркуш: {sheet_name}]\n" + '\n'.join(rows_text))
+        
+        wb.close()
+        
+        full_text = '\n\n'.join(sheets_text)
+        cleaned = clean_text(full_text)
+        
+        logger.info(f"XLSX parsed: {len(cleaned)} chars from {len(wb.sheetnames)} sheets")
+        return cleaned
+        
+    except ImportError:
+        raise ValueError("openpyxl не знайдено. Встановіть: pip install openpyxl")
+    except Exception as e:
+        raise ValueError(f"Помилка обробки .xlsx файлу: {e}")
+
+
 def parse_source(file_path: str) -> str:
     """
-    Parse a source file (DOCX or PDF) and return clean text.
+    Parse a source file and return clean text.
+    
+    Supported formats:
+    - .docx, .doc (Word)
+    - .pdf (PDF with text layer or OCR)
+    - .txt (plain text)
+    - .pptx (PowerPoint)
+    - .xlsx (Excel)
     
     Args:
         file_path: Path to source file
@@ -219,16 +422,28 @@ def parse_source(file_path: str) -> str:
         Extracted and cleaned text
         
     Raises:
-        ValueError: If file type is not supported
+        ValueError: If file type is not supported or parsing fails
     """
     ext = Path(file_path).suffix.lower()
     
     if ext == '.docx':
         return parse_docx(file_path)
+    elif ext == '.doc':
+        return parse_doc(file_path)
     elif ext == '.pdf':
         return parse_pdf(file_path)
+    elif ext == '.txt':
+        return parse_txt(file_path)
+    elif ext in ('.pptx', '.ppt'):
+        if ext == '.ppt':
+            logger.warning(".ppt (old format) may not work, trying as .pptx")
+        return parse_pptx(file_path)
+    elif ext in ('.xlsx', '.xls'):
+        if ext == '.xls':
+            logger.warning(".xls (old format) may not work, trying as .xlsx")
+        return parse_xlsx(file_path)
     else:
-        raise ValueError(f"Unsupported file type: {ext}")
+        raise ValueError(f"Непідтримуваний тип файлу: {ext}")
 
 
 def parse_sources(file_paths: List[str]) -> Dict[str, str]:

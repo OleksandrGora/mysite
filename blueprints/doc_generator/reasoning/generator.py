@@ -383,12 +383,7 @@ def call_llm(
                                  f"[EMPTY RESPONSE] {error_msg}", task_folder, actual_model)
                 raise ValueError(error_msg)
 
-            # Деанонімізуємо відповідь: відновлюємо оригінальні дані
-            from ..rag.anonymizer import get_anonymizer
-            anonymizer = get_anonymizer()
-            markdown_text = anonymizer.deanonymize(markdown_text)
-
-            # Save AI response
+            # Save AI response (промпт вже анонімізований, відповідь — сира з плейсхолдерами)
             save_ai_response(task_id, response_type, prompt, markdown_text, task_folder, actual_model)
 
             # Clean markdown code blocks

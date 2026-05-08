@@ -835,6 +835,11 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
                 selected_model=selected_model,
                 response_type="rag_doc"
             )
+
+            # Деанонімізуємо відповідь LLM (промпт був анонімізований в pipeline)
+            from ..rag.anonymizer import get_anonymizer
+            anonymizer = get_anonymizer()
+            markdown_text = anonymizer.deanonymize(markdown_text)
         else:
             logger.info(f"[{task_id}] Using FULL mode (one-pass generation)")
             append_debug_log(f"[{task_id}] Режим FULL: одноетапна генерація")
@@ -1530,19 +1535,26 @@ def rag_query_sources():
             response_type="rag_query"
         )
         
-        # Деанонімізуємо відповідь LLM
-        markdown_response = anonymizer.deanonymize(markdown_response)
-        
-        # ── Step 6: Save 3 fixed files directly in rag-testing (overwrite) ──
-        # File 1: prompt.txt — анонімізований промпт (реальний)
+        # ── Step 6: Save 4 fixed files directly in rag-testing (overwrite) ──
+        # File 1: prompt.txt — анонімізований промпт (реальний, що пішов у LLM)
         prompt_path = os.path.join(rag_testing_folder, 'prompt.txt')
         with open(prompt_path, 'w', encoding='utf-8') as f:
             f.write(full_prompt)
         
-        # File 2: response.txt — деанонімізована відповідь
+        # File 2: response.txt — сира відповідь LLM (з плейсхолдерами, ще не деанонімізована)
+        raw_response = markdown_response
         response_path = os.path.join(rag_testing_folder, 'response.txt')
         with open(response_path, 'w', encoding='utf-8') as f:
-            f.write(markdown_response)
+            f.write(raw_response)
+        
+        # File 3: response_deanonymized.txt — деанонімізована відповідь (для читання людиною)
+        deanonymized_response = anonymizer.deanonymize(raw_response)
+        deanonymized_path = os.path.join(rag_testing_folder, 'response_deanonymized.txt')
+        with open(deanonymized_path, 'w', encoding='utf-8') as f:
+            f.write(deanonymized_response)
+        
+        # Для повернення в UI використовуємо деанонімізовану відповідь
+        markdown_response = deanonymized_response
         
         # File 3: stats.json — user query, per-source chunk search, LLM response
         stats = {

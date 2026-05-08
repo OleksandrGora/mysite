@@ -13,3 +13,4 @@ celerybeat-schedule
 *.pem
 Tasks-data/
 data/
+.venv/

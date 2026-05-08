@@ -383,6 +383,11 @@ def call_llm(
                                  f"[EMPTY RESPONSE] {error_msg}", task_folder, actual_model)
                 raise ValueError(error_msg)
 
+            # Деанонімізуємо відповідь: відновлюємо оригінальні дані
+            from ..rag.anonymizer import get_anonymizer
+            anonymizer = get_anonymizer()
+            markdown_text = anonymizer.deanonymize(markdown_text)
+
             # Save AI response
             save_ai_response(task_id, response_type, prompt, markdown_text, task_folder, actual_model)
 
@@ -520,13 +525,20 @@ def generate_document_full(
     
     # return "" # for test
 
+    # Анонімізуємо джерела перед відправкою в LLM
+    from ..rag.anonymizer import get_anonymizer
+    anonymizer = get_anonymizer()
+    sources_anon = anonymizer.anonymize(sources_block)
+    logger.info(f"[{task_id}] Sources anonymized: {len(sources_block)} → {len(sources_anon)} chars, "
+                f"{len(anonymizer.get_map())} placeholders")
+
     # Build prompt
     import json
     structure_json = json.dumps(structure, ensure_ascii=False, indent=2)
     prompt = FULL_DOCUMENT_GENERATION_PROMPT.format(
         instructions=instructions,
         structure=structure_json,
-        sources=sources_block
+        sources=sources_anon
     )
     
     # Add user prompt if provided
@@ -627,6 +639,11 @@ def generate_document_full(
             else:
                 raise ValueError(f"Unsupported provider: {provider}")
             
+            # Деанонімізуємо відповідь LLM перед збереженням
+            from ..rag.anonymizer import get_anonymizer
+            anonymizer = get_anonymizer()
+            markdown_text = anonymizer.deanonymize(markdown_text)
+
             # Save AI response for debugging
             logger.info(f"[DEBUG] About to save AI response for full_document")
             logger.info(f"[DEBUG] Task folder: {task_folder}")

@@ -1500,9 +1500,15 @@ def rag_query_sources():
         else:
             context = "(Не знайдено релевантних фрагментів у джерелах)"
         
-        # ── Step 4: Build LLM prompt from template ───────────────────────────
+        # ── Step 4: Анонімізуємо контекст + будуємо LLM prompt ─────────────
+        from .rag.anonymizer import get_anonymizer
+        anonymizer = get_anonymizer()
+        context_anon = anonymizer.anonymize(context)
+        logger.info(f"[RAG-QUERY] Context anonymized: {len(context)} → {len(context_anon)} chars, "
+                    f"{len(anonymizer.get_map())} placeholders")
+
         full_prompt = RAG_PROMPT_TEMPLATE.format(
-            context=context,
+            context=context_anon,
             user_prompt=user_prompt
         )
         
@@ -1524,13 +1530,16 @@ def rag_query_sources():
             response_type="rag_query"
         )
         
+        # Деанонімізуємо відповідь LLM
+        markdown_response = anonymizer.deanonymize(markdown_response)
+        
         # ── Step 6: Save 3 fixed files directly in rag-testing (overwrite) ──
-        # File 1: prompt.txt — the full prompt sent to LLM
+        # File 1: prompt.txt — анонімізований промпт (реальний)
         prompt_path = os.path.join(rag_testing_folder, 'prompt.txt')
         with open(prompt_path, 'w', encoding='utf-8') as f:
             f.write(full_prompt)
         
-        # File 2: response.txt — the LLM response
+        # File 2: response.txt — деанонімізована відповідь
         response_path = os.path.join(rag_testing_folder, 'response.txt')
         with open(response_path, 'w', encoding='utf-8') as f:
             f.write(markdown_response)

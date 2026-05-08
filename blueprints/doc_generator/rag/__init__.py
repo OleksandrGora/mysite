@@ -22,6 +22,7 @@ from .prompt_parser import (
     ParsedPrompt
 )
 from .hybrid_search import HybridSearch
+from .anonymizer import Anonymizer, get_anonymizer
 
 __all__ = [
     'chunk_documents',
@@ -30,6 +31,8 @@ __all__ = [
     'Retriever',
     'QueryBuilder',
     'HybridSearch',
+    'Anonymizer',
+    'get_anonymizer',
     'generate_document_rag',
     'generate_document_rag_enhanced',
     'parse_full_doc_prompt',

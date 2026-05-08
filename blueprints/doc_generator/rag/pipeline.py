@@ -273,13 +273,20 @@ def generate_document_rag(
                    json.dumps(step_info, ensure_ascii=False, indent=2))
 
     # ============================================================
-    # Step 7: Build context + generate prompt
+    # Step 7: Build context + anonymize + generate prompt
     # ============================================================
     context_text = retriever.format_context_for_llm(retrieved_chunks)
 
+    # Анонімізуємо контекст перед відправкою в LLM
+    from .anonymizer import get_anonymizer
+    anonymizer = get_anonymizer()
+    context_anon = anonymizer.anonymize(context_text)
+    logger.info(f"[{task_id}] Context anonymized: {len(context_text)} → {len(context_anon)} chars, "
+                f"{len(anonymizer.get_map())} placeholders")
+
     prompt = _build_rag_prompt(
         analysis_text=analysis_text,
-        context_text=context_text,
+        context_text=context_anon,
         user_prompt=user_prompt
     )
 
@@ -584,14 +591,21 @@ def generate_document_rag_enhanced(
                    json.dumps(step_info, ensure_ascii=False, indent=2))
 
     # ============================================================
-    # Step 7: Build context grouped by section + generate prompt
+    # Step 7: Build context grouped by section + anonymize + generate prompt
     # ============================================================
     # Use grouped format: chunks organized by matched_section
     context_text = retriever.format_chunks_grouped_by_section(retrieved_chunks)
 
+    # Анонімізуємо контекст перед відправкою в LLM
+    from .anonymizer import get_anonymizer
+    anonymizer = get_anonymizer()
+    context_anon = anonymizer.anonymize(context_text)
+    logger.info(f"[{task_id}] Context anonymized: {len(context_text)} → {len(context_anon)} chars, "
+                f"{len(anonymizer.get_map())} placeholders")
+
     prompt = _build_rag_prompt_v2(
         parsed_prompt=parsed_prompt,
-        context_text=context_text,
+        context_text=context_anon,
         user_prompt=user_prompt
     )
 

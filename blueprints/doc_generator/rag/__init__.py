@@ -21,6 +21,7 @@ from .prompt_parser import (
     build_parent_context,
     ParsedPrompt
 )
+from .hybrid_search import HybridSearch
 
 __all__ = [
     'chunk_documents',
@@ -28,6 +29,7 @@ __all__ = [
     'Embedder',
     'Retriever',
     'QueryBuilder',
+    'HybridSearch',
     'generate_document_rag',
     'generate_document_rag_enhanced',
     'parse_full_doc_prompt',

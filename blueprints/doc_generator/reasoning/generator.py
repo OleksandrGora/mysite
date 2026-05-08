@@ -121,6 +121,8 @@ else:
 def save_ai_response(task_id: str, response_type: str, prompt: str, response: str, task_folder: str = None, model_name: str = None):
     """
     Зберегти AI відповідь в папку завдання для відлагодження.
+    Якщо task_folder не вказано — пропускає збереження (викликач сам вирішує,
+    чи треба зберігати, як у випадку RAG-запиту, де все зберігається окремо).
     
     Args:
         task_id: ID завдання
@@ -130,6 +132,12 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
         task_folder: Папка завдання (якщо є)
         model_name: Назва моделі (з сервера або fallback)
     """
+    # Якщо папка не вказана — пропускаємо збереження.
+    # Викликач (напр. RAG-запит у routes.py) сам зберігає потрібні файли.
+    if not task_folder:
+        logger.debug(f"[{task_id}] task_folder=None, skip save_ai_response (caller handles saving)")
+        return
+    
     actual_model = model_name or REASONING_MODEL
     
     # Debug info: input parameters
@@ -140,15 +148,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
     logger.info(f"[DEBUG] Prompt length: {len(prompt)} chars")
     logger.info(f"[DEBUG] Response length: {len(response)} chars")
     
-    # Визначити базову папку для збереження
-    if task_folder:
-        base_dir = task_folder
-        logger.info(f"[DEBUG] Using task folder as base dir: {base_dir}")
-    else:
-        # Якщо папка завдання не вказана, зберігати в temp
-        base_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'temp')
-        os.makedirs(base_dir, exist_ok=True)
-        logger.info(f"[DEBUG] Using temp folder as base dir: {base_dir}")
+    base_dir = task_folder
     
     # Створити папку для AI відповідей
     ai_responses_dir = os.path.join(base_dir, 'ai_responses')

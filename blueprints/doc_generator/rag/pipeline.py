@@ -68,8 +68,8 @@ def generate_document_rag(
         ValueError: If any step fails critically
     """
     params = chunk_params or {}
-    min_chunk_size = params.get('min_chunk_size', 100)
-    max_chunk_size = params.get('max_chunk_size', 500)
+    min_chunk_size = params.get('min_chunk_size', 50)
+    max_chunk_size = params.get('max_chunk_size', 250)
     top_k = params.get('top_k', 3)
     threshold = params.get('threshold', 0.0)
 
@@ -425,8 +425,8 @@ def generate_document_rag_enhanced(
         )
 
     params = chunk_params or {}
-    min_chunk_size = params.get('min_chunk_size', 100)
-    max_chunk_size = params.get('max_chunk_size', 500)
+    min_chunk_size = params.get('min_chunk_size', 50)
+    max_chunk_size = params.get('max_chunk_size', 250)
     top_k = params.get('top_k', 3)
     threshold = params.get('threshold', 0.0)
 

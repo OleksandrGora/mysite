@@ -1,57 +1,50 @@
 {
-  "Лабораторна робота 8.pdf": {
-    "filename": "Лабораторна робота 8.pdf",
+  "gonchar9.doc": {
+    "filename": "gonchar9.doc",
     "status": "ready",
     "progress": 100,
-    "message": "Готово: 6 чанків, 12377 символів",
-    "updated_at": "2026-05-08T10:53:48.680835",
-    "started_at": "2026-05-07T18:51:21.648074",
-    "char_count": 12377,
-    "word_count": 0,
-    "chunks": 6,
-    "collection": "rag_a67d144f6ad9778f",
-    "cached": false
+    "message": "Готово: 79 чанків, 121613 символів",
+    "updated_at": "2026-05-08T17:24:34.711280",
+    "char_count": 121613,
+    "chunks": 79,
+    "collection": "rag_2b9e9c5824bc8988",
+    "cached": false,
+    "started_at": "2026-05-08T17:24:34.711302"
   },
   "РЕДФОРД.pdf": {
     "filename": "РЕДФОРД.pdf",
     "status": "ready",
     "progress": 100,
     "message": "Готово: 1 чанків, 1619 символів",
-    "uploaded_at": "2026-05-07T19:11:22.912568",
-    "updated_at": "2026-05-08T10:53:51.517874",
-    "started_at": "2026-05-07T19:11:23.053095",
+    "updated_at": "2026-05-08T17:24:37.148254",
     "char_count": 1619,
-    "word_count": 0,
     "chunks": 1,
-    "collection": "rag_acb710bb9d7be24c",
-    "cached": false
+    "collection": "rag_5dcf0e48decfc05c",
+    "cached": false,
+    "started_at": "2026-05-08T17:24:37.148270"
   },
-  "gonchar9.doc": {
-    "filename": "gonchar9.doc",
+  "Лабораторна робота 8.pdf": {
+    "filename": "Лабораторна робота 8.pdf",
     "status": "ready",
     "progress": 100,
-    "message": "Готово: 40 чанків, 121613 символів",
-    "uploaded_at": "2026-05-07T19:38:25.185847",
-    "updated_at": "2026-05-08T10:55:38.957079",
-    "started_at": "2026-05-07T19:38:25.304128",
-    "char_count": 121613,
-    "word_count": 0,
-    "chunks": 40,
-    "collection": "rag_84581ae0449aac96",
-    "cached": false
+    "message": "Готово: 11 чанків, 12377 символів",
+    "updated_at": "2026-05-08T17:24:58.392207",
+    "char_count": 12377,
+    "chunks": 11,
+    "collection": "rag_2a47467eab5bb0d9",
+    "cached": false,
+    "started_at": "2026-05-08T17:24:58.392224"
   },
   "Лабораторна_робота_7.pdf": {
     "filename": "Лабораторна_робота_7.pdf",
     "status": "ready",
     "progress": 100,
     "message": "Готово: 1 чанків, 3975 символів",
-    "uploaded_at": "2026-05-08T11:05:44.812854",
-    "updated_at": "2026-05-08T11:05:49.454938",
-    "started_at": "2026-05-08T11:05:44.937203",
+    "updated_at": "2026-05-08T17:25:01.503973",
     "char_count": 3975,
-    "word_count": 0,
     "chunks": 1,
     "collection": "rag_8ef347fe74290771",
-    "cached": false
+    "cached": false,
+    "started_at": "2026-05-08T17:25:01.503993"
   }
 }

@@ -1,11 +1,14 @@
 """
 Retriever - Searches ChromaDB, deduplicates results, formats context for LLM.
+
+Provides both pure semantic search and hybrid (BM25 + semantic) search.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from loguru import logger
 
 from .embedder import Embedder
+from .hybrid_search import HybridSearch
 
 
 class Retriever:
@@ -159,12 +162,51 @@ class Retriever:
         logger.info(f"Total unique chunks retrieved (per-section): {len(all_chunks)}")
         return all_chunks
 
+    # ── Hybrid (BM25 + semantic) retrieval ────────────────────────────────
+
+    def hybrid_retrieve_for_queries(
+        self,
+        queries: List[Dict[str, str]],
+        sources_hashes: List[str],
+        top_k: int = 5,
+        alpha: float = 0.5,
+        threshold: float = 0.0,
+        max_total_chunks: int = 50,
+    ) -> List[Dict]:
+        """
+        Hybrid (BM25 + semantic) retrieval across multiple ChromaDB collections.
+
+        Each query runs BM25 over ALL chunks from ALL collections, plus
+        semantic search per collection, then fuses scores with alpha.
+
+        Args:
+            queries: List of dicts with 'section_title' and 'query_text'
+            sources_hashes: List of sources hashes (one per source file / collection)
+            top_k: Results per query
+            alpha: BM25 weight (0.0=pure semantic, 1.0=pure BM25)
+            threshold: Minimum combined score (0.0-1.0)
+            max_total_chunks: Max unique chunks to return total
+
+        Returns:
+            Deduplicated list of chunks with score, bm25_score, semantic_score
+        """
+        hybrid = HybridSearch(self.embedder)
+        return hybrid.search_for_queries(
+            queries=queries,
+            sources_hashes=sources_hashes,
+            top_k=top_k,
+            alpha=alpha,
+            threshold=threshold,
+            max_total_chunks=max_total_chunks,
+        )
+
     @staticmethod
     def format_context_for_llm(chunks: List[Dict]) -> str:
         """
         Format retrieved chunks as a context block for the LLM prompt.
 
         Each chunk includes source attribution for traceability.
+        Supports both pure semantic chunks (similarity) and hybrid (score).
         """
         if not chunks:
             return "(Не знайдено релевантних фрагментів у джерелах)"
@@ -175,7 +217,8 @@ class Retriever:
         for i, chunk in enumerate(chunks, 1):
             source = chunk.get('source', 'unknown')
             chunk_idx = chunk.get('chunk_index', 0)
-            similarity = chunk.get('similarity', 0)
+            # Hybrid search uses 'score', pure semantic uses 'similarity'
+            relevance = chunk.get('score', chunk.get('similarity', 0))
             text = chunk.get('text', '')
 
             # Add source header when source changes
@@ -184,7 +227,7 @@ class Retriever:
                 parts.append(f"\n=== {source} ===")
 
             parts.append(
-                f"[Фрагмент {i} | релевантність: {similarity:.2f}]\n{text}\n"
+                f"[Фрагмент {i} | релевантність: {relevance:.2f}]\n{text}\n"
             )
 
         return '\n'.join(parts)

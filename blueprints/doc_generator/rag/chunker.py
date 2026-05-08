@@ -51,21 +51,42 @@ def chunk_documents(
     all_chunks: List[Chunk] = []
     global_index = 0
 
+    logger.info(f"[CHUNKER] Starting chunk_documents: {len(sources_data)} sources, "
+                f"min_chunk={min_chunk_size}, max_chunk={max_chunk_size}")
+    
+    # Log what sources_data looks like
+    for source_name, data in sources_data.items():
+        text = data.get('text', '')
+        char_count = data.get('char_count', len(text))
+        word_count = data.get('word_count', len(text.split()))
+        logger.info(f"[CHUNKER] Source '{source_name}': text_len={len(text)} chars, "
+                    f"{word_count} words, char_count_meta={char_count}")
+
     for source_name, data in sources_data.items():
         text = data.get('text', '')
         if not text:
-            logger.warning(f"Empty text for source: {source_name}")
+            logger.warning(f"[CHUNKER] Empty text for source: {source_name}")
             continue
 
+        text_len = len(text)
+        text_words = len(text.split())
+        
         # Step 1: Split by paragraphs (double newlines)
         raw_paragraphs = re.split(r'\n\s*\n', text)
         raw_paragraphs = [p.strip() for p in raw_paragraphs if p.strip()]
+        
+        logger.info(f"[CHUNKER] '{source_name}': {text_len} chars, {text_words} words, "
+                    f"{len(raw_paragraphs)} raw paragraphs")
 
         if not raw_paragraphs:
+            logger.warning(f"[CHUNKER] No paragraphs found in '{source_name}' after splitting! "
+                           f"Text preview: {text[:100]!r}")
             continue
 
         # Step 2: Merge small paragraphs, split large ones
         merged = _merge_paragraphs(raw_paragraphs, min_chunk_size, max_chunk_size)
+        
+        logger.info(f"[CHUNKER] '{source_name}': {len(raw_paragraphs)} paragraphs → {len(merged)} merged chunks")
 
         # Step 3: Create Chunk objects
         for para_text in merged:
@@ -78,9 +99,16 @@ def chunk_documents(
             ))
             global_index += 1
 
-        logger.info(f"Chunked '{source_name}': {len(raw_paragraphs)} paragraphs → {len(merged)} chunks")
+        logger.info(f"[CHUNKER] Done '{source_name}': {len(merged)} chunks (total so far: {len(all_chunks)})")
 
-    logger.info(f"Total chunks created: {len(all_chunks)}")
+    logger.info(f"[CHUNKER] Total chunks created: {len(all_chunks)}")
+    if all_chunks:
+        word_counts = [c.word_count for c in all_chunks]
+        logger.info(f"[CHUNKER] Global stats: min={min(word_counts)}, max={max(word_counts)}, "
+                    f"avg={sum(word_counts)/len(word_counts):.0f} words per chunk")
+    else:
+        logger.warning(f"[CHUNKER] No chunks created at all!")
+    
     return all_chunks
 
 

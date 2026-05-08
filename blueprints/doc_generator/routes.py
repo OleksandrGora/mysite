@@ -27,9 +27,10 @@ def log_request_info():
 from .parsers.template_parser import parse_template
 from .parsers.source_parser import parse_sources_with_metadata
 from .config import (
-    ANALYSIS_PROMPT, AVAILABLE_MODELS, REASONING_MODEL, save_selected_model,
-    get_selected_model, get_openai_completion_kwargs, GEMINI_API_KEY,
-    OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE, get_model_provider
+    ANALYSIS_PROMPT, RAG_PROMPT_TEMPLATE, AVAILABLE_MODELS, REASONING_MODEL,
+    save_selected_model, get_selected_model, get_openai_completion_kwargs,
+    GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE,
+    get_model_provider
 )
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
@@ -1225,6 +1226,140 @@ def delete_source_file():
 
 
 # ============================================================================
+# SOURCE CHUNKS - View all chunks for a specific source
+# ============================================================================
+
+@doc_generator_bp.route('/api/sources/<filename>/chunks', methods=['GET'])
+@login_required
+def get_source_chunks(filename: str):
+    """Get all chunks for a specific source from ChromaDB."""
+    logger.info(f"[CHUNKS] Request for chunks: filename='{filename}'")
+    append_debug_log(f"[CHUNKS] Запит чанків для: {filename}")
+    try:
+        from .source_processor import get_source_status
+        from .rag.embedder import Embedder, compute_sources_hash
+        from .task_manager import SOURCES_DIR
+        
+        # Get source info from status
+        status = get_source_status(filename)
+        logger.info(f"[CHUNKS] Status for '{filename}': {status.get('status') if status else 'NO STATUS'}")
+        append_debug_log(f"[CHUNKS] Статус: {status.get('status') if status else 'NO STATUS'}")
+        
+        if not status:
+            logger.warning(f"[CHUNKS] No status found for '{filename}'")
+            append_debug_log(f"[CHUNKS] ❌ Статус не знайдено для: {filename}")
+            return jsonify({'error': 'Source not found in status'}), 404
+        
+        if status.get('status') != 'ready':
+            logger.warning(f"[CHUNKS] Source '{filename}' not ready (status={status.get('status')})")
+            append_debug_log(f"[CHUNKS] ❌ Джерело не готове: {status.get('status')}")
+            return jsonify({'error': 'Source not ready or not found'}), 404
+        
+        stored_collection = status.get('collection')
+        logger.info(f"[CHUNKS] Stored collection name: {stored_collection}")
+        append_debug_log(f"[CHUNKS] Колекція з статусу: {stored_collection}")
+        
+        embedder = Embedder()
+        collection = None
+        
+        # Try stored collection name first
+        if stored_collection:
+            all_cols = [c.name for c in embedder.client.list_collections()]
+            logger.info(f"[CHUNKS] Available ChromaDB collections ({len(all_cols)}): {all_cols}")
+            append_debug_log(f"[CHUNKS] Доступні колекції: {all_cols}")
+            
+            if stored_collection in all_cols:
+                collection = embedder.client.get_collection(stored_collection)
+                logger.info(f"[CHUNKS] Found collection by stored name: '{stored_collection}'")
+                append_debug_log(f"[CHUNKS] ✅ Знайдено колекцію за ім'ям: {stored_collection}")
+            else:
+                logger.warning(f"[CHUNKS] Stored collection '{stored_collection}' NOT found in ChromaDB!")
+                append_debug_log(f"[CHUNKS] ❌ Колекція '{stored_collection}' не знайдена в ChromaDB!")
+        
+        # Fallback: recompute hash
+        if not collection:
+            file_path = os.path.join(SOURCES_DIR, filename)
+            logger.info(f"[CHUNKS] Trying fallback: file_path='{file_path}', exists={os.path.isfile(file_path)}")
+            append_debug_log(f"[CHUNKS] Спроба знайти за хешем: {file_path}")
+            
+            if os.path.isfile(file_path):
+                sources_hash = compute_sources_hash([file_path])
+                logger.info(f"[CHUNKS] Computed sources_hash: {sources_hash}")
+                
+                if embedder.collection_exists(sources_hash):
+                    col_name = embedder.get_collection_name(sources_hash)
+                    logger.info(f"[CHUNKS] Found collection by hash: '{col_name}'")
+                    append_debug_log(f"[CHUNKS] ✅ Знайдено колекцію за хешем: {col_name}")
+                    collection = embedder.client.get_collection(col_name)
+                else:
+                    logger.warning(f"[CHUNKS] No collection exists for hash '{sources_hash}'")
+                    append_debug_log(f"[CHUNKS] ❌ Немає колекції для хешу {sources_hash}")
+            else:
+                logger.warning(f"[CHUNKS] File not found for fallback: '{file_path}'")
+                append_debug_log(f"[CHUNKS] ❌ Файл не знайдено: {filename}")
+        
+        if not collection:
+            logger.error(f"[CHUNKS] No collection found for '{filename}' after all attempts")
+            append_debug_log(f"[CHUNKS] ❌ Колекцію не знайдено жодним способом")
+            return jsonify({'error': 'ChromaDB collection not found'}), 404
+        
+        # Get all chunks
+        data = collection.get(include=['documents', 'metadatas'])
+        
+        documents = data.get('documents', []) or []
+        metadatas = data.get('metadatas', []) or []
+        
+        logger.info(f"[CHUNKS] Collection '{stored_collection or '?'}' returned {len(documents)} docs, {len(metadatas)} metadatas")
+        append_debug_log(f"[CHUNKS] Колекція повернула: {len(documents)} документів, {len(metadatas)} метаданих")
+        
+        if not documents:
+            logger.warning(f"[CHUNKS] Collection is empty - no documents found!")
+            append_debug_log(f"[CHUNKS] ❌ Колекція порожня!")
+            return jsonify({
+                'filename': filename,
+                'collection': stored_collection or 'unknown',
+                'total_chunks': 0,
+                'chunks': []
+            })
+        
+        chunks = []
+        for i, (doc, meta) in enumerate(zip(documents, metadatas)):
+            chunk_index = meta.get('chunk_index', i)
+            source = meta.get('source', filename)
+            word_count = meta.get('word_count', 0)
+            text_len = len(doc) if doc else 0
+            
+            logger.debug(f"[CHUNKS]   Chunk #{chunk_index}: source={source}, words={word_count}, chars={text_len}")
+            
+            chunks.append({
+                'chunk_index': chunk_index,
+                'source': source,
+                'word_count': word_count,
+                'text_preview': doc[:200] + ('...' if doc and len(doc) > 200 else ''),
+                'text': doc or ''
+            })
+        
+        # Sort by chunk_index
+        chunks.sort(key=lambda x: x['chunk_index'])
+        
+        logger.info(f"[CHUNKS] Returning {len(chunks)} chunks for '{filename}'")
+        append_debug_log(f"[CHUNKS] ✅ Повертаю {len(chunks)} чанків для {filename}")
+        
+        return jsonify({
+            'filename': filename,
+            'collection': stored_collection or 'unknown',
+            'total_chunks': len(chunks),
+            'chunks': chunks
+        })
+        
+    except Exception as e:
+        logger.error(f"[CHUNKS] Failed to get chunks for {filename}: {e}")
+        logger.error(traceback.format_exc())
+        append_debug_log(f"[CHUNKS] ❌ Помилка: {str(e)[:200]}")
+        return jsonify({'error': str(e)[:200]}), 500
+
+
+# ============================================================================
 # RAG QUERY - Interactive prompt analysis across all ready sources
 # ============================================================================
 
@@ -1241,11 +1376,10 @@ def rag_query_sources():
     Interactive RAG query against ALL processed source documents.
     
     1. Find all 'ready' source files from .sources_status.json
-    2. For each, search its ChromaDB collection with user's prompt
-    3. Aggregate + deduplicate chunks
-    4. Build prompt with chunks + user question, send to LLM
-    5. Save prompt/response via save_ai_response() to rag-testing/
-    6. Return response to UI
+    2. Use HybridSearch (BM25 + semantic) across all ChromaDB collections
+    3. Build prompt with chunks + user question, send to LLM
+    4. Save prompt/response via save_ai_response() to rag-testing/
+    5. Return response to UI
     """
     data = request.get_json()
     if not data or 'prompt' not in data:
@@ -1260,14 +1394,19 @@ def rag_query_sources():
     threshold = float(data.get('threshold', 0.5))
     threshold = max(0.3, min(0.7, threshold))  # Clamp to valid range
     
-    append_debug_log(f"[RAG-QUERY] Запит: {user_prompt[:100]}..., поріг: {threshold}")
+    # Alpha for hybrid search (0.0 = pure semantic, 1.0 = pure BM25)
+    alpha = float(data.get('alpha', 0.5))
+    alpha = max(0.0, min(1.0, alpha))
+    
+    append_debug_log(f"[RAG-QUERY] Запит: {user_prompt[:100]}..., поріг: {threshold}, alpha: {alpha}")
     
     try:
         # ── Step 1: Collect ready source files ──────────────────────────────
         from .source_processor import get_source_status
         from .rag.embedder import Embedder, compute_sources_hash
+        from .rag.hybrid_search import HybridSearch
         from .rag.retriever import Retriever
-        from .reasoning.generator import call_llm, save_ai_response
+        from .reasoning.generator import call_llm
         from .task_manager import SOURCES_DIR
         
         all_status = get_source_status()
@@ -1288,53 +1427,69 @@ def rag_query_sources():
         logger.info(f"[RAG-QUERY] Ready sources: {ready_sources}")
         append_debug_log(f"[RAG-QUERY] Знайдено джерел: {len(ready_sources)}")
         
-        # ── Step 2: Search each source's ChromaDB collection ────────────────
+        # ── Step 2: Hybrid search across ALL collections ────────────────────
         embedder = Embedder()
-        all_chunks = []
-        seen_texts = set()
-        sources_used = []
-        top_k_per_source = 3
+        sources_hashes = []
+        per_source_stats = {}
         
         for filename in ready_sources:
             file_path = os.path.join(SOURCES_DIR, filename)
+            
             if not os.path.isfile(file_path):
                 logger.warning(f"[RAG-QUERY] Source file not found: {file_path}")
+                per_source_stats[filename] = {'status': 'file_not_found', 'chunks': []}
                 continue
             
-            try:
+            src_info = all_status.get(filename, {})
+            stored_collection = src_info.get('collection')
+            sources_hash = None
+            
+            if stored_collection:
+                all_chroma_cols = [c.name for c in embedder.client.list_collections()]
+                if stored_collection in all_chroma_cols:
+                    sources_hash = stored_collection.replace('rag_', '', 1)
+            
+            if not sources_hash:
                 sources_hash = compute_sources_hash([file_path])
-                
                 if not embedder.collection_exists(sources_hash):
                     logger.warning(f"[RAG-QUERY] No ChromaDB collection for {filename}")
+                    per_source_stats[filename] = {'status': 'collection_not_found', 'chunks': []}
                     continue
-                
-                results = embedder.search(
-                    query=user_prompt,
-                    sources_hash=sources_hash,
-                    top_k=top_k_per_source,
-                    threshold=threshold
-                )
-                
-                if results:
-                    sources_used.append(filename)
-                    
-                    # Deduplicate across sources
-                    for chunk in results:
-                        text = chunk.get('text', '')
-                        dedup_key = f"{chunk.get('source', '')}:{text[:100]}"
-                        if dedup_key not in seen_texts:
-                            seen_texts.add(dedup_key)
-                            all_chunks.append(chunk)
-                
-                logger.debug(f"[RAG-QUERY] {filename}: {len(results)} chunks found")
-                
-            except Exception as e:
-                logger.warning(f"[RAG-QUERY] Failed to search {filename}: {e}")
-                continue
+            
+            sources_hashes.append(sources_hash)
+            per_source_stats[filename] = {'status': 'ok', 'chunks': []}  # will fill below
         
-        # Sort by similarity descending, keep top 5 (max)
-        all_chunks.sort(key=lambda x: x.get('similarity', 0), reverse=True)
-        all_chunks = all_chunks[:5]
+        if not sources_hashes:
+            return jsonify({
+                'response': None,
+                'error': 'Не знайдено жодної ChromaDB-колекції. Переобробіть джерела.',
+                'chunks_used': 0,
+                'sources_used': []
+            })
+        
+        # Hybrid search: BM25 + semantic
+        hybrid = HybridSearch(embedder)
+        all_chunks = hybrid.search(
+            query=user_prompt,
+            sources_hashes=sources_hashes,
+            top_k=10,
+            alpha=alpha,
+            threshold=threshold,
+        )
+        
+        # Fill per_source_stats with actual results
+        sources_used = []
+        for chunk in all_chunks:
+            source_name = chunk.get('source', 'unknown')
+            if source_name not in sources_used:
+                sources_used.append(source_name)
+            if source_name in per_source_stats:
+                per_source_stats[source_name]['chunks'].append({
+                    'chunk_index': chunk.get('chunk_index', 0),
+                    'cosine_similarity': chunk.get('score', 0.0),
+                    'bm25_score': chunk.get('bm25_score', 0.0),
+                    'semantic_score': chunk.get('semantic_score', 0.0),
+                })
         
         logger.info(f"[RAG-QUERY] Total unique chunks: {len(all_chunks)}")
         append_debug_log(f"[RAG-QUERY] Знайдено фрагментів: {len(all_chunks)}")
@@ -1345,16 +1500,10 @@ def rag_query_sources():
         else:
             context = "(Не знайдено релевантних фрагментів у джерелах)"
         
-        # ── Step 4: Build LLM prompt ────────────────────────────────────────
-        full_prompt = (
-            "Ти — аналітик, який відповідає на запитання на основі наданих фрагментів документів.\n"
-            "Відповідай українською мовою, посилаючись на конкретні джерела.\n"
-            "Якщо фрагментів недостатньо для повної відповіді, чесно скажи про це.\n\n"
-            "=== Фрагменти джерел ===\n"
-            f"{context}\n\n"
-            "=== Запитання користувача ===\n"
-            f"{user_prompt}\n\n"
-            "Відповідь:"
+        # ── Step 4: Build LLM prompt from template ───────────────────────────
+        full_prompt = RAG_PROMPT_TEMPLATE.format(
+            context=context,
+            user_prompt=user_prompt
         )
         
         # ── Step 5: Send to LLM ─────────────────────────────────────────────
@@ -1362,31 +1511,57 @@ def rag_query_sources():
         rag_testing_folder = RAG_TESTING_DIR
         os.makedirs(rag_testing_folder, exist_ok=True)
         
-        # Use a timestamp-based task_id for this interactive query
+        # Pass task_folder=None to call_llm so its internal save_ai_response
+        # skips saving (save_ai_response skips when task_folder is None).
+        # All needed data is saved explicitly below (prompt.txt, response.txt, stats.json).
         query_task_id = f"rag-query-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         
         markdown_response = call_llm(
             prompt=full_prompt,
             task_id=query_task_id,
-            task_folder=rag_testing_folder,
+            task_folder=None,
             selected_model=selected_model,
             response_type="rag_query"
         )
         
-        # ── Step 6: Save user prompt + chunks + response ────────────────────
-        save_ai_response(
-            task_id=query_task_id,
-            response_type="rag_query_with_chunks",
-            prompt=(
-                f"=== КОРИСТУВАЦЬКИЙ ЗАПИТ ===\n{user_prompt}\n\n"
-                f"=== ЗНАЙДЕНІ ФРАГМЕНТИ ===\n{context}\n\n"
-                f"=== МОДЕЛЬ ===\n{selected_model}\n"
-                f"=== ДЖЕРЕЛА ===\n{json.dumps(sources_used, ensure_ascii=False, indent=2)}"
-            ),
-            response=markdown_response,
-            task_folder=rag_testing_folder,
-            model_name=selected_model
-        )
+        # ── Step 6: Save 3 fixed files directly in rag-testing (overwrite) ──
+        # File 1: prompt.txt — the full prompt sent to LLM
+        prompt_path = os.path.join(rag_testing_folder, 'prompt.txt')
+        with open(prompt_path, 'w', encoding='utf-8') as f:
+            f.write(full_prompt)
+        
+        # File 2: response.txt — the LLM response
+        response_path = os.path.join(rag_testing_folder, 'response.txt')
+        with open(response_path, 'w', encoding='utf-8') as f:
+            f.write(markdown_response)
+        
+        # File 3: stats.json — user query, per-source chunk search, LLM response
+        stats = {
+            'user_query': user_prompt,
+            'threshold': threshold,
+            'alpha': alpha,
+            'search_mode': 'hybrid',
+            'model': selected_model,
+            'sources_searched': ready_sources,
+            'sources_with_chunks': sources_used,
+            'total_chunks_found': len(all_chunks),
+            'per_source_stats': per_source_stats,
+            'chunks_in_final_query': [
+                {
+                    'source': c.get('source', 'unknown'),
+                    'chunk_index': c.get('chunk_index', 0),
+                    'score': c.get('score', c.get('similarity', 0.0)),
+                    'bm25_score': c.get('bm25_score', 0.0),
+                    'semantic_score': c.get('semantic_score', 0.0),
+                }
+                for c in all_chunks
+            ],
+            'llm_response': markdown_response,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        stats_path = os.path.join(rag_testing_folder, 'stats.json')
+        with open(stats_path, 'w', encoding='utf-8') as f:
+            json.dump(stats, f, ensure_ascii=False, indent=2)
         
         append_debug_log(f"[RAG-QUERY] Відповідь отримано ({len(markdown_response)} символів)")
         

@@ -141,6 +141,23 @@ def get_openai_completion_kwargs(model_name: str, max_tokens: int, temperature: 
     
     return kwargs
 
+# RAG Query Prompt Template
+# This template is used for the interactive RAG analysis against processed sources.
+# Placeholders:
+#   {context} — formatted chunks from ChromaDB (via Retriever.format_context_for_llm)
+#   {user_prompt} — the user's original question
+RAG_PROMPT_TEMPLATE = """Ти — аналітик, який відповідає на запитання на основі наданих фрагментів документів.
+Відповідай українською мовою.
+Якщо фрагментів недостатньо для повної відповіді, чесно скажи про це. Мінімум зайвої інформації, без посилань на джерело інформації.
+
+=== Фрагменти джерел ===
+{context}
+
+=== Запитання користувача ===
+{user_prompt}
+
+Відповідь:"""
+
 # Feature Flags
 USE_RAG = os.getenv('USE_RAG', 'false').lower() == 'true'
 

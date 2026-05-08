@@ -193,16 +193,29 @@ def process_source_file_task(self, file_path: str, filename: str):
         tracker.set_phase(10, 35)
         _update_source_progress(filename, 12, 'Чанкування документа...', 'processing')
         
-        # Simulate chunking progress by tracking sub-steps
-        from .rag.chunker import chunk_documents
+        # Log source text stats before chunking
+        text_data = sources_data.get(filename, {})
+        source_text = text_data.get('text', '')
+        logger.info(f"[SOURCE-PROC] Chunking '{filename}': {len(source_text)} chars, {len(source_text.split())} words")
+        
+        from .rag.chunker import chunk_documents, format_chunks_for_log
         chunks = chunk_documents(
             sources_data=sources_data,
-            min_chunk_size=100,
-            max_chunk_size=500
+            min_chunk_size=50,
+            max_chunk_size=250
         )
         
         chunk_count = len(chunks)
         logger.info(f"[SOURCE-PROC] Created {chunk_count} chunks from {filename}")
+        
+        # Log chunk details
+        if chunks:
+            word_counts = [c.word_count for c in chunks]
+            logger.info(f"[SOURCE-PROC] Chunk stats for '{filename}': min={min(word_counts)}, max={max(word_counts)}, avg={sum(word_counts)/len(word_counts):.0f} words")
+            logger.debug(f"[SOURCE-PROC] Chunks for '{filename}':\n{format_chunks_for_log(chunks)}")
+        else:
+            logger.warning(f"[SOURCE-PROC] No chunks created from '{filename}'!")
+        
         _update_source_progress(filename, 35, f'Чанкування завершено: {chunk_count} чанків',
                                 'processing', extra={'chunks': chunk_count})
         

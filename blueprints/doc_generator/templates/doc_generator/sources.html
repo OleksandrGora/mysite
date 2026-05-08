@@ -331,16 +331,147 @@
             border: 1px solid #e0e0e0;
             border-radius: 6px;
             padding: 15px;
-            white-space: pre-wrap;
             font-size: 14px;
             line-height: 1.6;
             max-height: 500px;
             overflow-y: auto;
             font-family: inherit;
         }
+        .rag-response-box h1,
+        .rag-response-box h2,
+        .rag-response-box h3,
+        .rag-response-box h4 {
+            margin: 0.8em 0 0.4em;
+            color: #1a1a1a;
+        }
+        .rag-response-box h1 { font-size: 1.3em; }
+        .rag-response-box h2 { font-size: 1.15em; }
+        .rag-response-box h3 { font-size: 1.05em; }
+        .rag-response-box h4 { font-size: 1em; }
+        .rag-response-box p {
+            margin: 0.5em 0;
+        }
+        .rag-response-box ul,
+        .rag-response-box ol {
+            margin: 0.4em 0;
+            padding-left: 1.5em;
+        }
+        .rag-response-box li {
+            margin: 0.2em 0;
+        }
+        .rag-response-box strong {
+            font-weight: 700;
+            color: #1a1a1a;
+        }
+        .rag-response-box em {
+            font-style: italic;
+        }
+        .rag-response-box code {
+            background: #e8e8e8;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 0.9em;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        .rag-response-box a {
+            color: #1976d2;
+            text-decoration: underline;
+        }
+        .rag-response-box hr {
+            border: none;
+            border-top: 1px solid #ddd;
+            margin: 1em 0;
+        }
         .rag-response-box-loading {
             color: #999;
             font-style: italic;
+        }
+
+        /* ── Chunks Viewer ─────────────────────────────────────────────────── */
+        .chunks-toggle {
+            background: none;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 0.85em;
+            cursor: pointer;
+            color: #555;
+            transition: all 0.2s;
+        }
+        .chunks-toggle:hover {
+            background: #f0f7ff;
+            border-color: #1976d2;
+            color: #1976d2;
+        }
+        .chunks-toggle.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .chunks-container {
+            margin-top: 10px;
+            border-top: 1px solid #e8e8e8;
+            padding-top: 10px;
+            display: none;
+        }
+        .chunks-container.open {
+            display: block;
+        }
+        .chunk-item {
+            background: #f8f9fa;
+            border: 1px solid #e8e8e8;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .chunk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 0.8em;
+            color: #888;
+        }
+        .chunk-header .chunk-label {
+            font-weight: 600;
+            color: #1976d2;
+        }
+        .chunk-text {
+            font-size: 0.88em;
+            line-height: 1.5;
+            color: #444;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .chunk-text.collapsed {
+            max-height: 80px;
+            overflow: hidden;
+            position: relative;
+        }
+        .chunk-text.collapsed::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: linear-gradient(transparent, #f8f9fa);
+        }
+        .chunk-expand-btn {
+            background: none;
+            border: none;
+            color: #1976d2;
+            font-size: 0.8em;
+            cursor: pointer;
+            padding: 2px 0;
+        }
+        .chunk-expand-btn:hover {
+            text-decoration: underline;
+        }
+        .chunks-summary {
+            font-size: 0.8em;
+            color: #999;
+            margin-top: 8px;
+            text-align: center;
         }
 
         /* ── Threshold Slider ─────────────────────────────────────────────── */
@@ -477,6 +608,16 @@
                 <span class="rag-threshold-hint">менше = творчість, більше = точність</span>
             </div>
 
+            <!-- Alpha slider (hybrid search: BM25 vs semantic balance) -->
+            <div class="rag-threshold-row">
+                <span class="rag-threshold-label">⚖️ Баланс пошуку:</span>
+                <input type="range" id="rag-alpha"
+                       class="rag-threshold-slider"
+                       min="0.0" max="1.0" step="0.1" value="0.5">
+                <span id="rag-alpha-value" class="rag-threshold-value">0.5</span>
+                <span class="rag-threshold-hint">0 = семантика, 1 = ключові слова</span>
+            </div>
+
             <div class="rag-query-toolbar">
                 <button class="btn-primary" id="btn-rag-query" onclick="runRagQuery()">
                     🔍 Аналізувати промпт
@@ -509,13 +650,21 @@
             setupThresholdSlider();
         });
 
-        // ── Threshold Slider ─────────────────────────────────────────────────
+        // ── Sliders ──────────────────────────────────────────────────────────
         function setupThresholdSlider() {
-            const slider = document.getElementById('rag-threshold');
-            const valueDisplay = document.getElementById('rag-threshold-value');
-            if (slider && valueDisplay) {
-                slider.addEventListener('input', () => {
-                    valueDisplay.textContent = parseFloat(slider.value).toFixed(1);
+            const thresholdSlider = document.getElementById('rag-threshold');
+            const thresholdDisplay = document.getElementById('rag-threshold-value');
+            if (thresholdSlider && thresholdDisplay) {
+                thresholdSlider.addEventListener('input', () => {
+                    thresholdDisplay.textContent = parseFloat(thresholdSlider.value).toFixed(1);
+                });
+            }
+
+            const alphaSlider = document.getElementById('rag-alpha');
+            const alphaDisplay = document.getElementById('rag-alpha-value');
+            if (alphaSlider && alphaDisplay) {
+                alphaSlider.addEventListener('input', () => {
+                    alphaDisplay.textContent = parseFloat(alphaSlider.value).toFixed(1);
                 });
             }
         }
@@ -628,6 +777,108 @@
         }
 
         // ── RAG Query ───────────────────────────────────────────────────────
+
+        /**
+         * Lightweight Markdown → HTML renderer.
+         * Handles the subset of markdown typically returned by LLM responses:
+         * headers, bold, italic, inline code, code blocks, links, lists.
+         */
+        function renderMarkdown(text) {
+            if (!text) return '';
+            // Escape HTML first to prevent XSS
+            let html = text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            // Code blocks (```...```) — render before inline code
+            html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+                const cls = lang ? ` class="language-${lang}"` : '';
+                return `<pre><code${cls}>${code.trim()}</code></pre>`;
+            });
+
+            // Inline code (must be before bold/italic that use * chars)
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+            // Bold + italic combined ***text***
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            // Bold **text**
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // Italic *text* (not preceded by < to avoid matching HTML tags)
+            html = html.replace(/(?<!<)\*([^*\n]+?)\*/g, '<em>$1</em>');
+
+            // Links [text](url)
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+            // ── Process lists line-by-line ───────────────────────────────────
+            const lines = html.split('\n');
+            let result = [];
+            let inUl = false;
+            let inOl = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+
+                // Check for headers (must be at line start)
+                const hMatch = line.match(/^(#{1,4})\s+(.+)/);
+                if (hMatch) {
+                    if (inUl) { result.push('</ul>'); inUl = false; }
+                    if (inOl) { result.push('</ol>'); inOl = false; }
+                    const level = hMatch[1].length;
+                    result.push(`<h${level}>${hMatch[2]}</h${level}>`);
+                    continue;
+                }
+
+                // Horizontal rule
+                if (/^---+\s*$/.test(line)) {
+                    if (inUl) { result.push('</ul>'); inUl = false; }
+                    if (inOl) { result.push('</ol>'); inOl = false; }
+                    result.push('<hr>');
+                    continue;
+                }
+
+                // Unordered list item
+                const ulMatch = line.match(/^[-*]\s+(.+)/);
+                if (ulMatch) {
+                    if (inOl) { result.push('</ol>'); inOl = false; }
+                    if (!inUl) { result.push('<ul>'); inUl = true; }
+                    result.push(`<li>${ulMatch[1]}</li>`);
+                    continue;
+                }
+
+                // Ordered list item
+                const olMatch = line.match(/^\d+\.\s+(.+)/);
+                if (olMatch) {
+                    if (inUl) { result.push('</ul>'); inUl = false; }
+                    if (!inOl) { result.push('<ol>'); inOl = true; }
+                    result.push(`<li>${olMatch[1]}</li>`);
+                    continue;
+                }
+
+                // Regular line — close any open lists
+                if (inUl) { result.push('</ul>'); inUl = false; }
+                if (inOl) { result.push('</ol>'); inOl = false; }
+                result.push(line);
+            }
+
+            // Close any lists still open at the end
+            if (inUl) result.push('</ul>');
+            if (inOl) result.push('</ol>');
+
+            html = result.join('\n');
+
+            // Line breaks: double newline = paragraph break, single newline = <br>
+            html = html.replace(/\n\n/g, '</p><p>');
+            html = html.replace(/\n(?!<\/?(?:ul|ol|li|h[1-4]|pre|hr|p>))/g, '<br>');
+
+            // Wrap bare text in <p>
+            if (!/^<(?:h[1-4]|p|ul|ol|pre|hr)/.test(html)) {
+                html = `<p>${html}</p>`;
+            }
+
+            return html;
+        }
+
         async function runRagQuery() {
             const prompt = document.getElementById('rag-prompt-input').value.trim();
             if (!prompt) {
@@ -646,20 +897,21 @@
             status.textContent = 'Пошук релевантних фрагментів...';
             responseSection.style.display = 'none';
 
-            // Read threshold slider value
+            // Read threshold and alpha slider values
             const threshold = parseFloat(document.getElementById('rag-threshold').value) || 0.5;
+            const alpha = parseFloat(document.getElementById('rag-alpha').value) || 0.5;
 
             try {
                 const response = await fetch(`${API_BASE}/api/sources/rag-query`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, threshold })
+                    body: JSON.stringify({ prompt, threshold, alpha })
                 });
 
                 const result = await response.json();
 
                 if (result.response) {
-                    responseContent.textContent = result.response;
+                    responseContent.innerHTML = renderMarkdown(result.response);
                     meta.textContent = `(використано ${result.chunks_used} фрагментів з ${result.sources_used ? result.sources_used.length : 0} джерел)`;
                     responseSection.style.display = 'block';
                     status.textContent = '✅ Готово';
@@ -674,6 +926,126 @@
 
             btn.disabled = false;
             btn.innerHTML = '🔍 Аналізувати промпт';
+        }
+
+        // ── Chunks Viewer ───────────────────────────────────────────────────
+        // Track which sources have chunks open (to survive re-render)
+        let openChunks = new Set();
+
+        function escapeFilenameId(filename) {
+            return filename.replace(/[^a-zA-Z0-9]/g, '_');
+        }
+
+        async function toggleChunks(filename, btn) {
+            const containerId = 'chunks-' + escapeFilenameId(filename);
+            const container = document.getElementById(containerId);
+
+            console.log(`[CHUNKS] toggleChunks("${filename}"): container found=${!!container}`);
+            if (!container) {
+                console.warn(`[CHUNKS] Container not found for "${filename}" (id="${containerId}")`);
+                return;
+            }
+
+            // Toggle close if already open
+            if (container.classList.contains('open')) {
+                console.log(`[CHUNKS] Closing chunks for "${filename}"`);
+                openChunks.delete(filename);
+                _loadingChunks.delete(filename);
+                container.classList.remove('open');
+                container.innerHTML = '';
+                btn.textContent = '📄 Показати чанки';
+                return;
+            }
+
+            // Loading state
+            console.log(`[CHUNKS] Opening chunks for "${filename}"`);
+            openChunks.add(filename);
+            _loadingChunks.add(filename);
+            btn.classList.add('loading');
+            btn.textContent = '⏳ Завантаження...';
+            container.innerHTML = '';
+            container.classList.add('open');
+            container.innerHTML = '<div style="text-align:center;padding:10px;color:#999;">Завантаження чанків...</div>';
+
+            try {
+                const url = `${API_BASE}/api/sources/${encodeURIComponent(filename)}/chunks`;
+                console.log(`[CHUNKS] Fetching: ${url}`);
+                const response = await fetch(url);
+                console.log(`[CHUNKS] Response status: ${response.status}`);
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    const errMsg = errData.error || `HTTP ${response.status}`;
+                    console.error(`[CHUNKS] Error: ${errMsg}`);
+                    container.innerHTML = `<div style="color:#c62828;padding:10px;">❌ ${escapeHtml(errMsg)}</div>`;
+                    btn.textContent = '📄 Показати чанки';
+                    btn.classList.remove('loading');
+                    openChunks.delete(filename);
+                    _loadingChunks.delete(filename);
+                    return;
+                }
+
+                const data = await response.json();
+                console.log(`[CHUNKS] Response: total_chunks=${data.total_chunks}, chunks_count=${data.chunks ? data.chunks.length : 0}, collection=${data.collection}`);
+
+                if (!data.chunks || data.chunks.length === 0) {
+                    console.warn(`[CHUNKS] No chunks returned for "${filename}"`);
+                    container.innerHTML = '<div style="text-align:center;padding:10px;color:#999;">Немає чанків</div>';
+                    btn.textContent = '📄 Показати чанки';
+                    btn.classList.remove('loading');
+                    openChunks.delete(filename);
+                    _loadingChunks.delete(filename);
+                    return;
+                }
+
+                // CRITICAL: Check if container is still attached to DOM (re-render may have replaced it)
+                if (!document.body.contains(container)) {
+                    console.warn(`[CHUNKS] Container for "${filename}" was detached during load - chunks lost to re-render`);
+                    // The loadSources restore should handle re-fetching, so just clean up
+                    _loadingChunks.delete(filename);
+                    btn.classList.remove('loading');
+                    return;
+                }
+
+                let html = '';
+                data.chunks.forEach((chunk, idx) => {
+                    const chunkId = escapeFilenameId(filename) + '_chunk_' + idx;
+                    const wordInfo = chunk.word_count ? `, ${chunk.word_count} слів` : '';
+                    console.log(`[CHUNKS]   Rendering chunk #${chunk.chunk_index}: ${chunk.word_count} слів, ${(chunk.text || '').length} символів`);
+                    html += `
+                        <div class="chunk-item">
+                            <div class="chunk-header">
+                                <span class="chunk-label">#${chunk.chunk_index}</span>
+                                <span>${escapeHtml(chunk.source)}${wordInfo}</span>
+                            </div>
+                            <div id="${chunkId}" class="chunk-text${chunk.text && chunk.text.length > 300 ? ' collapsed' : ''}">${escapeHtml(chunk.text || '')}</div>
+                            ${chunk.text && chunk.text.length > 300 ? `<button class="chunk-expand-btn" onclick="expandChunk('${chunkId}', this)">▶ Показати повністю (${chunk.text.length} символів)</button>` : ''}
+                        </div>
+                    `;
+                });
+
+                html += `<div class="chunks-summary">Всього ${data.total_chunks} чанків</div>`;
+                container.innerHTML = html;
+                btn.textContent = '📄 Сховати чанки';
+                console.log(`[CHUNKS] ✅ Rendered ${data.chunks.length} chunks for "${filename}"`);
+
+            } catch (e) {
+                console.error(`[CHUNKS] Exception: ${e.message}`);
+                container.innerHTML = `<div style="color:#c62828;padding:10px;">❌ Помилка: ${escapeHtml(e.message)}</div>`;
+                btn.textContent = '📄 Показати чанки';
+                openChunks.delete(filename);
+            }
+
+            btn.classList.remove('loading');
+            _loadingChunks.delete(filename);
+        }
+
+        function expandChunk(chunkId, btn) {
+            const el = document.getElementById(chunkId);
+            if (el) {
+                el.classList.remove('collapsed');
+                btn.style.display = 'none';
+            }
         }
 
         // ── Delete ─────────────────────────────────────────────────────────
@@ -697,12 +1069,60 @@
         }
 
         // ── Load Sources ───────────────────────────────────────────────────
+        let _lastStatusData = null;
+        // Track which sources are currently loading chunks (to avoid race conditions)
+        let _loadingChunks = new Set();
+
         async function loadSources() {
             try {
                 const response = await fetch(`${API_BASE}/api/sources/status`);
                 if (!response.ok) return;
                 const statusData = await response.json();
+                
+                // Save chunk HTML for sources that are currently open (and NOT still loading)
+                const savedChunks = {};
+                for (const fn of openChunks) {
+                    if (_loadingChunks.has(fn)) {
+                        console.log(`[CHUNKS] Skipping save for "${fn}" - still loading`);
+                        continue;
+                    }
+                    const containerId = 'chunks-' + escapeFilenameId(fn);
+                    const container = document.getElementById(containerId);
+                    if (container && container.classList.contains('open')) {
+                        savedChunks[fn] = container.innerHTML;
+                    }
+                }
+                
                 renderSources(statusData);
+                _lastStatusData = statusData;
+                
+                // Restore open chunks after re-render
+                for (const fn of openChunks) {
+                    const containerId = 'chunks-' + escapeFilenameId(fn);
+                    const container = document.getElementById(containerId);
+                    const btn = container ? container.parentElement.querySelector('.chunks-toggle') : null;
+                    
+                    if (container && btn) {
+                        if (savedChunks[fn]) {
+                            // Restore saved HTML without re-fetching
+                            container.classList.add('open');
+                            container.innerHTML = savedChunks[fn];
+                            btn.textContent = '📄 Сховати чанки';
+                            console.log(`[CHUNKS] Restored saved chunks for "${fn}" after re-render`);
+                        } else if (_loadingChunks.has(fn)) {
+                            // Was loading when re-render happened - re-fetch
+                            console.log(`[CHUNKS] Re-fetching chunks for "${fn}" (was loading during re-render)`);
+                            toggleChunks(fn, btn);
+                        } else {
+                            // No saved HTML and not loading, re-fetch
+                            console.log(`[CHUNKS] Re-fetching chunks for "${fn}" after re-render (no saved data)`);
+                            toggleChunks(fn, btn);
+                        }
+                    } else {
+                        console.warn(`[CHUNKS] Cannot restore chunks for "${fn}" - container=${!!container}, btn=${!!btn}`);
+                        openChunks.delete(fn);
+                    }
+                }
             } catch (e) {
                 console.error('Failed to load sources:', e);
             }
@@ -712,6 +1132,8 @@
         function renderSources(statusData) {
             const container = document.getElementById('sources-container');
             const filenames = Object.keys(statusData);
+            
+            console.log(`[SOURCES] Rendering ${filenames.length} sources, openChunks=${[...openChunks].join(', ')}`);
 
             if (filenames.length === 0) {
                 container.innerHTML = `
@@ -719,6 +1141,7 @@
                         <div class="empty-state-icon">📂</div>
                         <p>Немає завантажених джерел</p>
                     </div>`;
+                openChunks.clear();
                 return;
             }
 
@@ -788,9 +1211,13 @@
                         ` : ''}
 
                         ${status === 'ready' ? `
-                            <div style="margin-top: 8px;">
+                            <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px;">
                                 <span class="status-badge status-ready">✅ Готово</span>
+                                <button class="chunks-toggle" onclick="toggleChunks('${escapeHtml(filename)}', this)">
+                                    📄 Показати чанки
+                                </button>
                             </div>
+                            <div id="chunks-${escapeHtml(filename).replace(/[^a-zA-Z0-9]/g, '_')}" class="chunks-container"></div>
                         ` : ''}
 
                         ${status === 'error' ? `

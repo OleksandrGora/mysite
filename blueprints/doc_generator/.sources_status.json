@@ -4,12 +4,12 @@
     "status": "ready",
     "progress": 100,
     "message": "Готово: 6 чанків, 12377 символів",
-    "updated_at": "2026-05-07T18:51:42.959607",
+    "updated_at": "2026-05-08T10:53:48.680835",
     "started_at": "2026-05-07T18:51:21.648074",
     "char_count": 12377,
     "word_count": 0,
     "chunks": 6,
-    "collection": "rag_2a47467eab5bb0d9",
+    "collection": "rag_a67d144f6ad9778f",
     "cached": false
   },
   "РЕДФОРД.pdf": {
@@ -18,24 +18,40 @@
     "progress": 100,
     "message": "Готово: 1 чанків, 1619 символів",
     "uploaded_at": "2026-05-07T19:11:22.912568",
-    "updated_at": "2026-05-07T19:11:26.038698",
+    "updated_at": "2026-05-08T10:53:51.517874",
     "started_at": "2026-05-07T19:11:23.053095",
     "char_count": 1619,
     "word_count": 0,
     "chunks": 1,
-    "collection": "rag_5dcf0e48decfc05c",
+    "collection": "rag_acb710bb9d7be24c",
     "cached": false
   },
   "gonchar9.doc": {
     "filename": "gonchar9.doc",
-    "status": "processing",
-    "progress": 35,
-    "message": "Створення ембеддингів...",
+    "status": "ready",
+    "progress": 100,
+    "message": "Готово: 40 чанків, 121613 символів",
     "uploaded_at": "2026-05-07T19:38:25.185847",
-    "updated_at": "2026-05-07T19:38:26.222480",
+    "updated_at": "2026-05-08T10:55:38.957079",
     "started_at": "2026-05-07T19:38:25.304128",
     "char_count": 121613,
     "word_count": 0,
-    "chunks": 40
+    "chunks": 40,
+    "collection": "rag_84581ae0449aac96",
+    "cached": false
+  },
+  "Лабораторна_робота_7.pdf": {
+    "filename": "Лабораторна_робота_7.pdf",
+    "status": "ready",
+    "progress": 100,
+    "message": "Готово: 1 чанків, 3975 символів",
+    "uploaded_at": "2026-05-08T11:05:44.812854",
+    "updated_at": "2026-05-08T11:05:49.454938",
+    "started_at": "2026-05-08T11:05:44.937203",
+    "char_count": 3975,
+    "word_count": 0,
+    "chunks": 1,
+    "collection": "rag_8ef347fe74290771",
+    "cached": false
   }
 }

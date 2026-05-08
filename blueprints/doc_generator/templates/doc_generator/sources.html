@@ -277,6 +277,136 @@
             text-decoration: underline;
         }
 
+        /* ── RAG Query Section ────────────────────────────────────────────── */
+        .rag-query-section {
+            margin-top: 30px;
+        }
+        .rag-query-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .rag-query-card textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            line-height: 1.5;
+            box-sizing: border-box;
+        }
+        .rag-query-card textarea:focus {
+            outline: none;
+            border-color: #1976d2;
+            box-shadow: 0 0 0 2px rgba(25,118,210,0.15);
+        }
+        .rag-query-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .rag-status {
+            font-size: 0.9em;
+            color: #666;
+        }
+        .rag-response-section {
+            margin-top: 15px;
+        }
+        .rag-response-label {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+        }
+        .rag-response-meta {
+            font-weight: normal;
+            font-size: 0.85em;
+            color: #888;
+        }
+        .rag-response-box {
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.6;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: inherit;
+        }
+        .rag-response-box-loading {
+            color: #999;
+            font-style: italic;
+        }
+
+        /* ── Threshold Slider ─────────────────────────────────────────────── */
+        .rag-threshold-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e8e8e8;
+        }
+        .rag-threshold-label {
+            font-size: 0.85em;
+            color: #555;
+            white-space: nowrap;
+        }
+        .rag-threshold-slider {
+            flex: 1;
+            max-width: 200px;
+            height: 6px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(90deg, #90caf9, #1976d2, #1565c0);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+        .rag-threshold-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #1976d2;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: transform 0.15s;
+        }
+        .rag-threshold-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+        .rag-threshold-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #1976d2;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            cursor: pointer;
+        }
+        .rag-threshold-value {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #1976d2;
+            min-width: 32px;
+            text-align: center;
+        }
+        .rag-threshold-hint {
+            font-size: 0.8em;
+            color: #999;
+            margin-left: auto;
+        }
+
         /* Responsive */
         @media (max-width: 600px) {
             .source-header {
@@ -329,6 +459,41 @@
         </div>
     </div>
 
+    <!-- RAG Query Section -->
+    <div class="rag-query-section">
+        <h2>🔍 RAG-аналіз джерел</h2>
+        <div class="rag-query-card">
+            <textarea id="rag-prompt-input"
+                      placeholder="Введіть запит до всіх оброблених джерел. Наприклад: &quot;Які ключові вимоги до безпеки описано в документах?&quot;"
+                      rows="4"></textarea>
+
+            <!-- Threshold slider -->
+            <div class="rag-threshold-row">
+                <span class="rag-threshold-label">🎯 Точність пошуку:</span>
+                <input type="range" id="rag-threshold"
+                       class="rag-threshold-slider"
+                       min="0.3" max="0.7" step="0.1" value="0.5">
+                <span id="rag-threshold-value" class="rag-threshold-value">0.5</span>
+                <span class="rag-threshold-hint">менше = творчість, більше = точність</span>
+            </div>
+
+            <div class="rag-query-toolbar">
+                <button class="btn-primary" id="btn-rag-query" onclick="runRagQuery()">
+                    🔍 Аналізувати промпт
+                </button>
+                <span id="rag-status" class="rag-status"></span>
+            </div>
+
+            <div id="rag-response-section" class="rag-response-section" style="display: none;">
+                <div class="rag-response-label">
+                    Відповідь:
+                    <span id="rag-meta" class="rag-response-meta"></span>
+                </div>
+                <div id="rag-response-content" class="rag-response-box"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div id="toast" class="toast"></div>
 
@@ -341,7 +506,19 @@
             // Poll status every 2 seconds
             setInterval(loadSources, 2000);
             setupDragDrop();
+            setupThresholdSlider();
         });
+
+        // ── Threshold Slider ─────────────────────────────────────────────────
+        function setupThresholdSlider() {
+            const slider = document.getElementById('rag-threshold');
+            const valueDisplay = document.getElementById('rag-threshold-value');
+            if (slider && valueDisplay) {
+                slider.addEventListener('input', () => {
+                    valueDisplay.textContent = parseFloat(slider.value).toFixed(1);
+                });
+            }
+        }
 
         // ── Drag & Drop ────────────────────────────────────────────────────
         function setupDragDrop() {
@@ -448,6 +625,55 @@
             }
             btn.disabled = false;
             btn.innerHTML = '⚡ Обробити всі';
+        }
+
+        // ── RAG Query ───────────────────────────────────────────────────────
+        async function runRagQuery() {
+            const prompt = document.getElementById('rag-prompt-input').value.trim();
+            if (!prompt) {
+                showToast('Введіть запит для аналізу', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-rag-query');
+            const status = document.getElementById('rag-status');
+            const responseSection = document.getElementById('rag-response-section');
+            const responseContent = document.getElementById('rag-response-content');
+            const meta = document.getElementById('rag-meta');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Аналіз...';
+            status.textContent = 'Пошук релевантних фрагментів...';
+            responseSection.style.display = 'none';
+
+            // Read threshold slider value
+            const threshold = parseFloat(document.getElementById('rag-threshold').value) || 0.5;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/sources/rag-query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, threshold })
+                });
+
+                const result = await response.json();
+
+                if (result.response) {
+                    responseContent.textContent = result.response;
+                    meta.textContent = `(використано ${result.chunks_used} фрагментів з ${result.sources_used ? result.sources_used.length : 0} джерел)`;
+                    responseSection.style.display = 'block';
+                    status.textContent = '✅ Готово';
+                } else {
+                    showToast(result.error || 'Помилка аналізу', 'error');
+                    status.textContent = '';
+                }
+            } catch (e) {
+                showToast(`Помилка: ${e.message}`, 'error');
+                status.textContent = '';
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '🔍 Аналізувати промпт';
         }
 
         // ── Delete ─────────────────────────────────────────────────────────

@@ -715,7 +715,13 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         logger.info(f"[ANALYZE] LLM response received, type: {type(response)}")
         logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
-        logger.info(f"[ANALYZE] Analysis text length: {len(analysis_text)}")
+        
+        # Validate: analysis must not be empty
+        if not analysis_text or not analysis_text.strip():
+            raise ValueError(
+                f"Модель {selected_model} повернула порожню відповідь під час аналізу. "
+                f"Будь ласка, спробуйте іншу модель або повторіть аналіз."
+            )
         
         # Save AI response for debugging
         from .reasoning.generator import save_ai_response
@@ -766,7 +772,115 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
                                  use_rag=False, chunk_params=None):
     """Celery task for final document generation."""
     from loguru import logger
-    ...
+    from ..reasoning.generator import call_llm, generate_document_full
+    from ..task_manager import load_analysis_result, save_final_document, update_task_status, SOURCES_DIR
+    from ..reasoning.markdown_to_docx import convert_markdown_to_docx
+    from ..parsers.source_parser import parse_sources_with_metadata
+    from ..rag.pipeline import generate_document_rag
+    import traceback
+    import os
+
+    selected_model = get_selected_model()
+    attempt_num = self.request.retries + 1
+    attempt_suffix = f" (Спроба {attempt_num})" if attempt_num > 1 else ""
+
+    append_debug_log(f"[CELERY] Початок генерації документа для завдання {task_id}{attempt_suffix}")
+    append_debug_log(f"[CELERY] Модель для генерації: {selected_model}")
+    logger.info(f"[GENERATE] Starting document generation for task {task_id}")
+
+    try:
+        update_task_status(folder_path, 'generating')
+
+        # 1. Load analysis text
+        analysis_text = load_analysis_result(folder_path)
+        if not analysis_text or not analysis_text.strip():
+            raise ValueError("Аналіз порожній. Спочатку виконайте аналіз шаблону.")
+        logger.info(f"[{task_id}] Analysis text loaded: {len(analysis_text)} chars")
+        append_debug_log(f"[{task_id}] Аналіз завантажено: {len(analysis_text)} символів")
+
+        # 2. Load source files
+        source_paths = [os.path.join(SOURCES_DIR, f) for f in source_files if f]
+        sources_data = {}
+        if source_paths:
+            logger.info(f"[{task_id}] Parsing source files: {source_files}")
+            sources_data = parse_sources_with_metadata(source_paths)
+            logger.info(f"[{task_id}] Sources parsed: {len(sources_data)} files")
+            append_debug_log(f"[{task_id}] Джерела завантажено: {len(sources_data)} файлів")
+        else:
+            logger.info(f"[{task_id}] No source files provided")
+            append_debug_log(f"[{task_id}] Джерела не вказано")
+
+        # 3. Generate document content
+        if use_rag:
+            logger.info(f"[{task_id}] Using RAG mode for generation")
+            append_debug_log(f"[{task_id}] Режим RAG: генерація з контекстом")
+
+            # Pipeline returns the prompt (context + structure)
+            rag_prompt = generate_document_rag(
+                analysis_text=analysis_text,
+                sources_data=sources_data,
+                task_id=task_id,
+                user_prompt=generation_prompt or None,
+                task_folder=folder_path,
+                selected_model=selected_model,
+                chunk_params=chunk_params
+            )
+
+            # Call LLM with the RAG-built prompt
+            markdown_text = call_llm(
+                prompt=rag_prompt,
+                task_id=task_id,
+                task_folder=folder_path,
+                selected_model=selected_model,
+                response_type="rag_doc"
+            )
+        else:
+            logger.info(f"[{task_id}] Using FULL mode (one-pass generation)")
+            append_debug_log(f"[{task_id}] Режим FULL: одноетапна генерація")
+
+            markdown_text = generate_document_full(
+                analysis_text=analysis_text,
+                sources_data=sources_data,
+                task_id=task_id,
+                user_prompt=generation_prompt or None,
+                task_folder=folder_path,
+                selected_model=selected_model
+            )
+
+        logger.info(f"[{task_id}] Markdown generated: {len(markdown_text)} chars")
+        append_debug_log(f"[{task_id}] Згенеровано: {len(markdown_text)} символів")
+
+        # 4. Convert markdown to DOCX
+        temp_docx_path = os.path.join(folder_path, f"temp_{task_id}.docx")
+        convert_markdown_to_docx(markdown_text, temp_docx_path)
+        logger.info(f"[{task_id}] DOCX created: {temp_docx_path}")
+        append_debug_log(f"[{task_id}] DOCX створено")
+
+        # 5. Save final document to task folder
+        save_final_document(folder_path, temp_docx_path)
+        update_task_status(folder_path, 'completed')
+
+        # Cleanup temp
+        if os.path.exists(temp_docx_path):
+            os.remove(temp_docx_path)
+
+        logger.success(f"[{task_id}] Document generation completed")
+        append_debug_log(f"[CELERY] Генерація документа завершена для завдання {task_id}")
+        return {'status': 'success', 'task_id': task_id}
+
+    except Exception as e:
+        logger.error(f"[GENERATE] Failed for task {task_id}: {e}")
+        logger.error(f"[GENERATE] Traceback: {traceback.format_exc()}")
+        error_msg = str(e)[:200]
+        append_debug_log(f"[CELERY] ПОМИЛКА генерації документа для завдання {task_id}: '{error_msg}'")
+
+        if self.request.retries < self.max_retries:
+            next_attempt = self.request.retries + 2
+            append_debug_log(f"[CELERY] Буде запущена {next_attempt} спроба генерації через 30 секунд")
+
+        if self.request.retries >= self.max_retries:
+            update_task_status(folder_path, 'failed', error_msg)
+        raise self.retry(exc=e, countdown=30)
 
 
 # ============================================================================
@@ -1108,5 +1222,190 @@ def delete_source_file():
         'filename': filename,
         'file_deleted': deleted_file
     })
+
+
+# ============================================================================
+# RAG QUERY - Interactive prompt analysis across all ready sources
+# ============================================================================
+
+RAG_TESTING_DIR = os.path.join(
+    os.path.dirname(__file__),
+    'Tasks-data', 'rag-testing'
+)
+
+
+@doc_generator_bp.route('/api/sources/rag-query', methods=['POST'])
+@login_required
+def rag_query_sources():
+    """
+    Interactive RAG query against ALL processed source documents.
+    
+    1. Find all 'ready' source files from .sources_status.json
+    2. For each, search its ChromaDB collection with user's prompt
+    3. Aggregate + deduplicate chunks
+    4. Build prompt with chunks + user question, send to LLM
+    5. Save prompt/response via save_ai_response() to rag-testing/
+    6. Return response to UI
+    """
+    data = request.get_json()
+    if not data or 'prompt' not in data:
+        return jsonify({'error': 'prompt is required'}), 400
+    
+    user_prompt = data['prompt'].strip()
+    if not user_prompt:
+        return jsonify({'error': 'prompt cannot be empty'}), 400
+    
+    # Similarity threshold (0.3–0.7). Chunks with cosine similarity below this
+    # are excluded. Lower = more creative/lenient, higher = more precise/strict.
+    threshold = float(data.get('threshold', 0.5))
+    threshold = max(0.3, min(0.7, threshold))  # Clamp to valid range
+    
+    append_debug_log(f"[RAG-QUERY] Запит: {user_prompt[:100]}..., поріг: {threshold}")
+    
+    try:
+        # ── Step 1: Collect ready source files ──────────────────────────────
+        from .source_processor import get_source_status
+        from .rag.embedder import Embedder, compute_sources_hash
+        from .rag.retriever import Retriever
+        from .reasoning.generator import call_llm, save_ai_response
+        from .task_manager import SOURCES_DIR
+        
+        all_status = get_source_status()
+        ready_sources = [
+            fn for fn, info in all_status.items()
+            if info.get('status') == 'ready'
+        ]
+        
+        if not ready_sources:
+            append_debug_log(f"[RAG-QUERY] Немає оброблених джерел")
+            return jsonify({
+                'response': None,
+                'error': 'Немає оброблених джерел. Спочатку обробіть джерела.',
+                'chunks_used': 0,
+                'sources_used': []
+            })
+        
+        logger.info(f"[RAG-QUERY] Ready sources: {ready_sources}")
+        append_debug_log(f"[RAG-QUERY] Знайдено джерел: {len(ready_sources)}")
+        
+        # ── Step 2: Search each source's ChromaDB collection ────────────────
+        embedder = Embedder()
+        all_chunks = []
+        seen_texts = set()
+        sources_used = []
+        top_k_per_source = 3
+        
+        for filename in ready_sources:
+            file_path = os.path.join(SOURCES_DIR, filename)
+            if not os.path.isfile(file_path):
+                logger.warning(f"[RAG-QUERY] Source file not found: {file_path}")
+                continue
+            
+            try:
+                sources_hash = compute_sources_hash([file_path])
+                
+                if not embedder.collection_exists(sources_hash):
+                    logger.warning(f"[RAG-QUERY] No ChromaDB collection for {filename}")
+                    continue
+                
+                results = embedder.search(
+                    query=user_prompt,
+                    sources_hash=sources_hash,
+                    top_k=top_k_per_source,
+                    threshold=threshold
+                )
+                
+                if results:
+                    sources_used.append(filename)
+                    
+                    # Deduplicate across sources
+                    for chunk in results:
+                        text = chunk.get('text', '')
+                        dedup_key = f"{chunk.get('source', '')}:{text[:100]}"
+                        if dedup_key not in seen_texts:
+                            seen_texts.add(dedup_key)
+                            all_chunks.append(chunk)
+                
+                logger.debug(f"[RAG-QUERY] {filename}: {len(results)} chunks found")
+                
+            except Exception as e:
+                logger.warning(f"[RAG-QUERY] Failed to search {filename}: {e}")
+                continue
+        
+        # Sort by similarity descending, keep top 5 (max)
+        all_chunks.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+        all_chunks = all_chunks[:5]
+        
+        logger.info(f"[RAG-QUERY] Total unique chunks: {len(all_chunks)}")
+        append_debug_log(f"[RAG-QUERY] Знайдено фрагментів: {len(all_chunks)}")
+        
+        # ── Step 3: Format context from chunks ──────────────────────────────
+        if all_chunks:
+            context = Retriever.format_context_for_llm(all_chunks)
+        else:
+            context = "(Не знайдено релевантних фрагментів у джерелах)"
+        
+        # ── Step 4: Build LLM prompt ────────────────────────────────────────
+        full_prompt = (
+            "Ти — аналітик, який відповідає на запитання на основі наданих фрагментів документів.\n"
+            "Відповідай українською мовою, посилаючись на конкретні джерела.\n"
+            "Якщо фрагментів недостатньо для повної відповіді, чесно скажи про це.\n\n"
+            "=== Фрагменти джерел ===\n"
+            f"{context}\n\n"
+            "=== Запитання користувача ===\n"
+            f"{user_prompt}\n\n"
+            "Відповідь:"
+        )
+        
+        # ── Step 5: Send to LLM ─────────────────────────────────────────────
+        selected_model = get_selected_model()
+        rag_testing_folder = RAG_TESTING_DIR
+        os.makedirs(rag_testing_folder, exist_ok=True)
+        
+        # Use a timestamp-based task_id for this interactive query
+        query_task_id = f"rag-query-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        
+        markdown_response = call_llm(
+            prompt=full_prompt,
+            task_id=query_task_id,
+            task_folder=rag_testing_folder,
+            selected_model=selected_model,
+            response_type="rag_query"
+        )
+        
+        # ── Step 6: Save user prompt + chunks + response ────────────────────
+        save_ai_response(
+            task_id=query_task_id,
+            response_type="rag_query_with_chunks",
+            prompt=(
+                f"=== КОРИСТУВАЦЬКИЙ ЗАПИТ ===\n{user_prompt}\n\n"
+                f"=== ЗНАЙДЕНІ ФРАГМЕНТИ ===\n{context}\n\n"
+                f"=== МОДЕЛЬ ===\n{selected_model}\n"
+                f"=== ДЖЕРЕЛА ===\n{json.dumps(sources_used, ensure_ascii=False, indent=2)}"
+            ),
+            response=markdown_response,
+            task_folder=rag_testing_folder,
+            model_name=selected_model
+        )
+        
+        append_debug_log(f"[RAG-QUERY] Відповідь отримано ({len(markdown_response)} символів)")
+        
+        return jsonify({
+            'response': markdown_response,
+            'chunks_used': len(all_chunks),
+            'sources_used': sources_used
+        })
+        
+    except Exception as e:
+        logger.error(f"[RAG-QUERY] Failed: {e}")
+        logger.error(traceback.format_exc())
+        append_debug_log(f"[RAG-QUERY] ПОМИЛКА: {str(e)[:200]}")
+        
+        return jsonify({
+            'response': None,
+            'error': f'Помилка аналізу: {str(e)[:200]}',
+            'chunks_used': 0,
+            'sources_used': []
+        }), 500
 
 

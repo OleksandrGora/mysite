@@ -53,10 +53,10 @@ class Embedder:
     @property
     def client(self):
         if self._client is None:
-            self._client = chromadb.Client(Settings(
-                persist_directory=CHROMA_DB_DIR,
-                anonymized_telemetry=False
-            ))
+            self._client = chromadb.PersistentClient(
+                path=CHROMA_DB_DIR,
+                settings=Settings(anonymized_telemetry=False)
+            )
         return self._client
 
     @staticmethod
@@ -317,13 +317,35 @@ class Embedder:
         logger.debug(f"Truncated text from {len(text)} to {len(truncated)} chars")
         return truncated
 
+    def _check_ollama_available(self) -> bool:
+        """Check if Ollama service is running and reachable."""
+        try:
+            resp = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+            return resp.status_code == 200
+        except requests.exceptions.ConnectionError:
+            return False
+        except Exception:
+            return False
+
     def _generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
         Generate embeddings for texts via Ollama API.
         
         Processes in batches to avoid overloading Ollama.
         Truncates texts that exceed the model's context window.
+        
+        Raises:
+            ConnectionError: If Ollama is not running/accessible.
+            RuntimeError: If embedding fails after retries.
         """
+        # Quick check first
+        if not self._check_ollama_available():
+            raise ConnectionError(
+                f"Не вдалося підключитися до Ollama ({OLLAMA_BASE_URL}). "
+                f"Переконайтеся, що Ollama запущено. "
+                f"Команда: ollama serve"
+            )
+
         all_embeddings = []
 
         # Truncate texts to fit model context
@@ -356,10 +378,17 @@ class Embedder:
 
             except requests.exceptions.Timeout:
                 logger.error(f"Ollama timeout for batch {i}")
-                raise
+                raise RuntimeError(
+                    f"Ollama timeout при обробці пакету {i}. "
+                    f"Модель '{EMBEDDING_MODEL}' може бути завантажена або перевантажена."
+                )
             except requests.exceptions.ConnectionError:
                 logger.error(f"Cannot connect to Ollama at {OLLAMA_BASE_URL}")
-                raise
+                raise ConnectionError(
+                    f"Не вдалося підключитися до Ollama ({OLLAMA_BASE_URL}). "
+                    f"Переконайтеся, що Ollama запущено (ollama serve) "
+                    f"та модель '{EMBEDDING_MODEL}' встановлено (ollama pull {EMBEDDING_MODEL})."
+                )
             except Exception as e:
                 logger.error(f"Embedding failed for batch {i}: {e}")
                 # Try one text at a time to isolate failures

@@ -3,8 +3,9 @@ from blueprints.txt_to_docx_converter import converter_bp
 from blueprints.doc_generator import doc_generator_bp
 from blueprints.pptx_generator import pptx_generator_bp
 from blueprints.ocr_processor import ocr_processor_bp
+from blueprints.moodle_session import moodle_session_bp
 from blueprints.doc_generator.celery_worker import celery_app
-from flask import Flask, render_template, redirect, url_for, session
+from flask import Flask, render_template, redirect, url_for, session, jsonify
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import os
@@ -44,10 +45,11 @@ app.register_blueprint(converter_bp)
 app.register_blueprint(doc_generator_bp)
 app.register_blueprint(pptx_generator_bp)
 app.register_blueprint(ocr_processor_bp)
+app.register_blueprint(moodle_session_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'temporary_secret_key_for_debug')
 
 logger.info("=== APP STARTUP ===")
-logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor")
+logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor, moodle_session")
 logger.info(f"Secret key set: {bool(app.secret_key)}")
 
 # Celery and data configuration
@@ -83,6 +85,7 @@ SERVICES = [
     {"name": "Генератор документів", "url": "/doc-generator", "desc": "Генерація документів з шаблонів і джерел"},
     {"name": "Генератор PowerPoint презентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
     {"name": "OCR Текстовий Розпізнавач", "url": "/ocr-processor", "desc": "Розпізнавання друкованого та рукописного тексту зі зображень"},
+    {"name": "Moodle Assignment Reporter", "url": "/moodle-session", "desc": "Отримання завдань з Moodle НУБіП та надсилання у Telegram"},
 ]
 
 @app.route('/')
@@ -130,6 +133,8 @@ def logout():
     logger.info(f"[LOGOUT] User {email} logging out")
     session.clear()
     return redirect(url_for('login'))
+
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

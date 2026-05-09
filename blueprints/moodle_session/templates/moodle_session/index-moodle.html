@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moodle Assignment Reporter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #e1e4e8;
+    }
+    header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+    .back-link {
+      font-size: 14px;
+      color: #0366d6;
+      text-decoration: none;
+    }
+    .back-link:hover { text-decoration: underline; }
+
+    .section {
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #24292e;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #444d56;
+      margin-bottom: 4px;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5da;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #24292e;
+      background: #fafbfc;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: #0366d6;
+      box-shadow: 0 0 0 2px rgba(3,102,214,0.15);
+    }
+    .form-group .hint {
+      font-size: 12px;
+      color: #586069;
+      margin-top: 2px;
+    }
+    .form-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .form-row .form-group {
+      flex: 1;
+    }
+    .form-row .form-group.small {
+      flex: 0 0 auto;
+      min-width: 120px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: #0366d6;
+      color: #fff;
+      border-color: #0366d6;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #0256b5;
+    }
+    .btn-success {
+      background: #28a745;
+      color: #fff;
+      border-color: #28a745;
+    }
+    .btn-success:hover:not(:disabled) {
+      background: #22863a;
+    }
+    .btn-outline {
+      background: transparent;
+      color: #0366d6;
+      border-color: #d1d5da;
+    }
+    .btn-outline:hover:not(:disabled) {
+      background: #f0f4f8;
+      border-color: #0366d6;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .status-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #f6f8fa;
+      border-radius: 8px;
+      margin-top: 12px;
+    }
+    .status-label {
+      font-size: 13px;
+      color: #586069;
+    }
+    .status-value {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .status-badge.success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status-badge.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .status-badge.pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .log-box {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      padding: 16px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 12px;
+      display: none;
+    }
+    .log-box.visible {
+      display: block;
+    }
+
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .toggle-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .flash-message {
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .flash-message.success {
+      background: #d4edda;
+      color: #155724;
+      display: block;
+    }
+    .flash-message.error {
+      background: #f8d7da;
+      color: #721c24;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📚 Moodle Assignment Reporter</h1>
+      <a href="/" class="back-link">← На головну</a>
+    </header>
+
+    <div id="flash" class="flash-message"></div>
+
+    <!-- Налаштування Moodle -->
+    <div class="section">
+      <div class="section-title">🔐 Налаштування Moodle</div>
+      <div class="form-group">
+        <label for="moodle_email">Email</label>
+        <input type="email" id="moodle_email" value="{{ config.moodle_email }}" placeholder="email@gmail.com">
+      </div>
+      <div class="form-group">
+        <label for="moodle_password">Пароль</label>
+        <input type="password" id="moodle_password" value="{% if config.moodle_password_set %}••••••••{% endif %}" placeholder="Залиште порожнім, щоб не змінювати">
+        <div class="hint" id="pwHint">{% if config.moodle_password_set %}✅ Пароль збережено{% else %}❌ Пароль не встановлено{% endif %}</div>
+      </div>
+      <div class="form-group">
+        <label for="moodle_url">URL Moodle</label>
+        <input type="url" id="moodle_url" value="{{ config.moodle_url }}">
+      </div>
+      <div class="form-group">
+        <label for="moodle_token">Moodle API Token (опціонально — обхід Playwright)</label>
+        <input type="text" id="moodle_token" placeholder="abcdef123456...">
+        <div class="hint">
+          {% if config.moodle_token %}✅ Токен збережено (очистіть поле, щоб видалити){% else %}
+          Якщо Playwright не проходить — вставте токен, отриманий вручну через браузер (F12 → Application → Local Storage → moodle_mobile_token){% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Налаштування Telegram -->
+    <div class="section">
+      <div class="section-title">✉️ Налаштування Telegram</div>
+      <div class="form-group">
+        <label for="telegram_bot_token">Bot Token</label>
+        <input type="text" id="telegram_bot_token" value="{{ config.telegram_bot_token }}" placeholder="123456:ABCdef...">
+        <div class="hint">Отримайте у @BotFather</div>
+      </div>
+      <div class="form-group">
+        <label for="telegram_chat_ids">Chat IDs</label>
+        <input type="text" id="telegram_chat_ids" value="{{ config.telegram_chat_ids }}" placeholder="1088484594,123456789">
+        <div class="hint">Chat ID через кому (без пробілів). Знайти у @userinfobot</div>
+      </div>
+    </div>
+
+    <!-- Розклад -->
+    <div class="section">
+      <div class="section-title">⏰ Розклад автоматичного запуску</div>
+      <div class="form-row">
+        <div class="form-group small">
+          <label for="schedule_time">Час запуску</label>
+          <input type="time" id="schedule_time" value="{{ config.schedule_time or '08:00' }}">
+        </div>
+        <div class="form-group" style="flex: 0 0 auto; padding-bottom: 4px;">
+          <label class="toggle-label">
+            <input type="checkbox" id="schedule_enabled" {% if config.schedule_enabled %}checked{% endif %}>
+            Автоматичний запуск (щодня)
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Кнопки керування -->
+    <div class="section">
+      <div class="actions">
+        <button class="btn btn-primary" onclick="saveSettings()">💾 Зберегти налаштування</button>
+        <button class="btn btn-success" id="btnTestRun" onclick="testRun()">▶ Тестувати — запустити звіт</button>
+      </div>
+
+      <!-- Статус останнього запуску -->
+      <div class="status-card">
+        <span class="status-label">Останній запуск:</span>
+        <span class="status-value" id="lastRunTime">{{ config.last_run or '—' }}</span>
+        <span id="lastRunBadge">
+          {% if config.last_run_status == 'success' %}
+            <span class="status-badge success">✅ Успішно</span>
+          {% elif config.last_run_status == 'error' %}
+            <span class="status-badge error">❌ Помилка</span>
+          {% else %}
+            <span class="status-badge pending">⏸ Немає запусків</span>
+          {% endif %}
+        </span>
+      </div>
+
+      <!-- Лог виконання -->
+      <div id="logBox" class="log-box"></div>
+    </div>
+  </div>
+
+  <script>
+    // =============================================================
+    // Flash message
+    // =============================================================
+    function flash(message, type) {
+      var el = document.getElementById('flash');
+      el.textContent = message;
+      el.style.display = '';  // Скидаємо inline display, щоб клас спрацював
+      el.className = 'flash-message ' + type;
+      setTimeout(function() { el.style.display = 'none'; }, 5000);
+    }
+
+    // =============================================================
+    // Save settings
+    // =============================================================
+    function saveSettings() {
+      var data = {
+        moodle_email: document.getElementById('moodle_email').value,
+        moodle_url: document.getElementById('moodle_url').value,
+        moodle_token: document.getElementById('moodle_token').value,
+        telegram_bot_token: document.getElementById('telegram_bot_token').value,
+        telegram_chat_ids: document.getElementById('telegram_chat_ids').value,
+        schedule_time: document.getElementById('schedule_time').value,
+        schedule_enabled: document.getElementById('schedule_enabled').checked,
+      };
+
+      var pwd = document.getElementById('moodle_password').value;
+      if (pwd) {
+        data.moodle_password = pwd;
+      }
+
+      fetch('/moodle-session/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) { flash('Помилка: ' + d.error, 'error'); return; }
+        flash(d.message || 'Налаштування збережено', 'success');
+        // Оновлюємо статус пароля
+        var pwHint = document.getElementById('pwHint');
+        if (pwHint) {
+          pwHint.textContent = d.moodle_password_set
+            ? '✅ Пароль збережено'
+            : '❌ Пароль не встановлено';
+        }
+        var pwField = document.getElementById('moodle_password');
+        if (pwField && d.moodle_password_set && !pwField.value) {
+          pwField.value = '••••••••';
+        }
+        // Оновлюємо статус токена
+        var tokenHint = document.querySelector('#moodle_token + .hint');
+        if (tokenHint) {
+          tokenHint.textContent = d.moodle_token_set
+            ? '✅ Токен збережено'
+            : '💡 Вставте токен, отриманий вручну, щоб обійти Playwright';
+        }
+      })
+      .catch(function(e) { flash('Помилка: ' + e.message, 'error'); });
+    }
+
+    // =============================================================
+    // Test run
+    // =============================================================
+    function testRun() {
+      var btn = document.getElementById('btnTestRun');
+      var logBox = document.getElementById('logBox');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Виконується...';
+      logBox.textContent = 'Запускаємо звіт... Чекайте 20-30 секунд.\n';
+      logBox.classList.add('visible');
+
+      fetch('/moodle-session/api/test-run', {
+        method: 'POST',
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          logBox.textContent += '\n✅ Звіт успішно надіслано в Telegram!\n\n';
+          logBox.textContent += '=== ЗМІСТ ЗВІТУ ===\n' + (d.report || '') + '\n';
+          flash('Звіт надіслано!', 'success');
+        } else {
+          logBox.textContent += '\n❌ Помилка: ' + (d.error || 'Невідома помилка') + '\n';
+          flash('Помилка: ' + (d.error || 'Невідома помилка'), 'error');
+        }
+        updateStatus();
+      })
+      .catch(function(e) {
+        logBox.textContent += '\n❌ Помилка запиту: ' + e.message + '\n';
+        flash('Помилка: ' + e.message, 'error');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '▶ Тестувати — запустити звіт';
+      });
+    }
+
+    // =============================================================
+    // Update status
+    // =============================================================
+    function updateStatus() {
+      fetch('/moodle-session/api/status')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        document.getElementById('lastRunTime').textContent = d.last_run || '—';
+        var badge = document.getElementById('lastRunBadge');
+        if (d.last_run_status === 'success') {
+          badge.innerHTML = '<span class="status-badge success">✅ Успішно</span>';
+        } else if (d.last_run_status === 'error') {
+          badge.innerHTML = '<span class="status-badge error">❌ Помилка</span>';
+        } else {
+          badge.innerHTML = '<span class="status-badge pending">⏸ Немає запусків</span>';
+        }
+      })
+      .catch(function() {});
+    }
+  </script>
+</body>
+</html>

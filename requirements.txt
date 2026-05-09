@@ -27,3 +27,9 @@ spacy>=3.7.0
 
 # File Upload
 Werkzeug>=2.3.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Browser Automation (Moodle session)
+playwright>=1.40.0

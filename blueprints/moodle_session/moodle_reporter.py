@@ -307,7 +307,11 @@ def classify_item(item: dict) -> str:
         # Тести: тільки якщо відкриті або відкриваються
         has_timing = item['timeOpen'] or item['timeClose']
         if not has_timing:
-            return 'hide'                          # без часу — не показуємо
+            # Навчальні тести без часу — не показуємо
+            n = item.get('name', '').lower()
+            if 'самоконтрол' in n or 'навчальн' in n:
+                return 'hide'
+            # Решта тестів без часу (іспити тощо) — показуємо
         if item['timeClose'] and item['timeClose'] * 1000 < datetime.now().timestamp() * 1000:
             return 'hide'                          # вже закритий
         # Тести не фільтруємо за isRecent — якщо відкриті, показуємо

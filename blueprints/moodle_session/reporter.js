@@ -401,3 +401,4 @@ function reportAssignments() {
     sendTelegram('❌ НУБіП — помилка: ' + e.message);
   }
 }
+

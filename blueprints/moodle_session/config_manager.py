@@ -25,6 +25,7 @@ DEFAULT_CONFIG = {
     "schedule_enabled": False,
     "last_run": None,
     "last_run_status": None,
+    "last_scheduled_date": None,  # Дата останнього запуску за розкладом (YYYY-MM-DD)
 }
 
 

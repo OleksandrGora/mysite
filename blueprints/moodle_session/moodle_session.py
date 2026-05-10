@@ -162,58 +162,74 @@ def get_moodle_session(
                 _random_delay(1.0, 2.0)
                 logger.debug("Moodle session: клікнули Google OAuth")
 
-                # 3. Логін в Google
-                # Чекаємо поле email
-                page.wait_for_selector('input[type="email"]', state='visible', timeout=15000)
-                _random_delay(0.5, 1.0)
+                # 3. Чекаємо або редирект на Moodle (якщо профіль вже авторизований),
+                #    або появу поля email (якщо треба логінитись)
+                moodle_redirected = False
+                try:
+                    page.wait_for_url(f"{moodle_url}/**", timeout=5000)
+                    moodle_redirected = True
+                    logger.debug("Moodle session: профіль вже авторизований, редирект на Moodle")
+                except Exception:
+                    logger.debug("Moodle session: потрібен логін в Google")
 
-                # Вводимо email як людина
-                _human_type(page, 'input[type="email"]', email)
-                _random_delay(0.5, 1.0)
-                page.click("#identifierNext")
-                logger.debug("Moodle session: email введено")
+                if not moodle_redirected:
+                    # Логін в Google
+                    # Чекаємо поле email
+                    page.wait_for_selector('input[type="email"]', state='visible', timeout=20000)
+                    _random_delay(0.5, 1.0)
 
-                # Чекаємо поле пароля
-                page.wait_for_selector('input[type="password"]', state="visible", timeout=15000)
-                _random_delay(0.5, 1.5)
+                    # Вводимо email як людина
+                    _human_type(page, 'input[type="email"]', email)
+                    _random_delay(0.5, 1.0)
+                    page.click("#identifierNext")
+                    logger.debug("Moodle session: email введено")
 
-                # Вводимо пароль як людина
-                _human_type(page, 'input[type="password"]', password)
-                _random_delay(0.5, 1.0)
-                page.click("#passwordNext")
-                logger.debug("Moodle session: пароль введено")
+                    # Чекаємо або редирект (якщо Google пропустив крок пароля),
+                    # або поле пароля
+                    try:
+                        page.wait_for_url(f"{moodle_url}/**", timeout=5000)
+                        moodle_redirected = True
+                        logger.debug("Moodle session: редирект після email (без пароля)")
+                    except Exception:
+                        pass
 
-                # 4. Чекаємо редирект назад на Moodle або challenge
-                # Спочатку пробуємо дочекатись редиректу на Moodle
+                if not moodle_redirected:
+                    # Чекаємо поле пароля
+                    page.wait_for_selector('input[type="password"]', state="visible", timeout=15000)
+                    _random_delay(0.5, 1.5)
+
+                    # Вводимо пароль як людина
+                    _human_type(page, 'input[type="password"]', password)
+                    _random_delay(0.5, 1.0)
+                    page.click("#passwordNext")
+                    logger.debug("Moodle session: пароль введено")
+
+                # 4. Чекаємо редирект назад на Moodle (або challenge)
                 _random_delay(1.0, 2.0)
 
-                # Перевіряємо чи ми на сторінці challenge
-                current_url = page.url
-                if 'challenge' in current_url or 'google.com/v3/signin' in current_url:
-                    logger.warning(f"Moodle session: Google challenge сторінка виявлена: {current_url[:100]}")
-                    # Можливо, профіль вже збережено і при повторному запуску все буде ок
-                    # Або спробуємо почекати і перезавантажити
-                    logger.info("Moodle session: пробуємо дочекатись вирішення challenge...")
-                    try:
-                        page.wait_for_url(f"{moodle_url}/**", timeout=30000)
-                    except Exception:
-                        logger.error("Moodle session: challenge не вирішено, пробуємо ще раз...")
-                        # Якщо challenge - зберігаємо сторінку для діагностики
+                if not moodle_redirected:
+                    # Перевіряємо чи ми на сторінці challenge
+                    current_url = page.url
+                    if 'challenge' in current_url or 'google.com/v3/signin' in current_url:
+                        logger.warning(f"Moodle session: Google challenge сторінка виявлена")
+                        logger.info("Moodle session: пробуємо дочекатись вирішення challenge...")
                         try:
-                            page.screenshot(path=os.path.join(USER_DATA_DIR, 'challenge.png'))
-                            logger.info(f"Moodle session: скріншот challenge збережено в {USER_DATA_DIR}/challenge.png")
+                            page.wait_for_url(f"{moodle_url}/**", timeout=30000)
                         except Exception:
-                            pass
-                        browser.close()
-                        return None
-                else:
-                    # Чекаємо редирект на Moodle
-                    try:
-                        page.wait_for_url(f"{moodle_url}/**", timeout=30000)
-                    except Exception:
-                        logger.warning("Moodle session: таймаут очікування редиректу на Moodle")
-                        browser.close()
-                        return None
+                            logger.error("Moodle session: challenge не вирішено")
+                            try:
+                                page.screenshot(path=os.path.join(USER_DATA_DIR, 'challenge.png'))
+                            except Exception:
+                                pass
+                            browser.close()
+                            return None
+                    else:
+                        try:
+                            page.wait_for_url(f"{moodle_url}/**", timeout=30000)
+                        except Exception:
+                            logger.warning("Moodle session: таймаут очікування редиректу на Moodle")
+                            browser.close()
+                            return None
 
                 logger.debug("Moodle session: редирект на Moodle отримано")
 

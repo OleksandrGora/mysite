@@ -38,8 +38,9 @@ def fmt_date(dt: datetime) -> str:
 
 def abbreviate_name(name: str) -> str:
     s = name
-    s = re.sub(r'лабораторн[^\s]*(?:\s+робот[^\s]*|\s+робіт)?\s*№?\s*(\d+)', r'ЛР\1', s, flags=re.IGNORECASE)
-    s = re.sub(r'самостійн[^\s]*(?:\s+робот[^\s]*|\s+робіт)?\s*№?\s*(\d+)', r'СР\1', s, flags=re.IGNORECASE)
+    s = re.sub(r'лабораторн[^\s]*(?:\s+робот[^\s]*|\s+робіт)?\s*№?\s*(\d+(?:\.\d+)?)', r'ЛР\1', s, flags=re.IGNORECASE)
+    s = re.sub(r'самостійн[^\s]*(?:\s+робот[^\s]*|\s+робіт)?\s*№?\s*(\d+(?:\.\d+)?)', r'СР\1', s, flags=re.IGNORECASE)
+    s = re.sub(r'практичн[^\s]*(?:\s+робот[^\s]*|\s+робіт)?\s*№?\s*(\d+(?:\.\d+)?)', r'ПР\1', s, flags=re.IGNORECASE)
     if s != name:
         s = re.sub(r'\s+', ' ', s).strip()
     return s
@@ -52,9 +53,9 @@ def trim_name(name: str, max_len: int = MAX_NAME_LEN) -> str:
     return s[:max_len - 3] + '...'
 
 
-def num_from_name(name: str) -> int:
-    m = re.search(r'\d+', name)
-    return int(m.group(0)) if m else 999999
+def num_from_name(name: str) -> float:
+    m = re.search(r'\d+(?:\.\d+)?', name)
+    return float(m.group(0)) if m else 999999
 
 
 def detect_type(name: str) -> str:
@@ -237,13 +238,33 @@ def get_quizzes(cid: int, token: str, moodle_url: str) -> list:
 
 
 def is_submitted(assign_id: int, token: str, moodle_url: str) -> bool:
-    """Перевіряє чи здано завдання."""
+    """Перевіряє чи здано/виконано завдання."""
     try:
         data = moodle_api_call(token, 'mod_assign_get_submission_status', moodle_url, {'assignid': assign_id})
         lastattempt = data.get('lastattempt', {})
         submission = lastattempt.get('submission', {})
-        return submission.get('status') == 'submitted'
-    except Exception:
+        sid = submission.get('id')
+        status = submission.get('status', '')
+        logger.debug(f"is_submitted(assign_id={assign_id}): status='{status}', has_id={bool(sid)}")
+
+        # Завдання здано: статус 'submitted'
+        if status == 'submitted':
+            return True
+        # Є submission id, але статус не 'submitted' — можливо чернетка або нове, не рахуємо зданим
+        # Але якщо є оцінка/фідбек — означає виконане (оцінене вручну)
+        feedback_grade = data.get('feedback', {})
+        if feedback_grade and isinstance(feedback_grade, dict):
+            has_grade = bool(feedback_grade.get('grade'))
+        else:
+            has_grade = False
+        has_grading = bool(lastattempt.get('grading'))
+        if has_grade or has_grading:
+            logger.debug(f"is_submitted(assign_id={assign_id}): має оцінку, вважаємо виконаним")
+            return True
+
+        return False
+    except Exception as e:
+        logger.warning(f"is_submitted(assign_id={assign_id}): API помилка — {e}")
         return False
 
 
@@ -256,7 +277,17 @@ def classify(assignment: dict, semester: dict, is_test: bool = False) -> dict:
     t_open = assignment.get('timeopen' if is_test else 'allowsubmissionsfromdate')
     t_close = assignment.get('timeclose' if is_test else 'duedate')
     has_dl = bool(t_close and t_close > 0 and is_in_semester(t_close, semester))
+    has_open = bool(t_open and t_open > 0 and is_in_semester(t_open, semester))
     dl_days = days_until(t_close) if has_dl else float('inf')
+
+    # Перевіряємо чи завдання взагалі актуальне (не з 2013 тощо).
+    # Якщо всі дати до 2020 року — це залишки минулих років
+    max_date = max(
+        t_open if t_open and t_open > 0 else 0,
+        t_close if t_close and t_close > 0 else 0,
+    )
+    cutoff = datetime(2020, 1, 1).timestamp()
+    is_recent = max_date == 0 or max_date > cutoff
 
     return {
         'name': assignment.get('name', ''),
@@ -266,29 +297,36 @@ def classify(assignment: dict, semester: dict, is_test: bool = False) -> dict:
         'hasDeadline': has_dl,
         'isTest': is_test,
         'isOpenSoon': is_open_soon(t_open),
+        'isRecent': is_recent,
     }
 
 
 def classify_item(item: dict) -> str:
-    """Повертає 'show', 'hide' або 'nodeadline'."""
+    """Повертає 'show' або 'hide'."""
     if item['isTest']:
+        # Тести: тільки якщо відкриті або відкриваються
         has_timing = item['timeOpen'] or item['timeClose']
         if not has_timing:
-            return 'hide'
+            return 'hide'                          # без часу — не показуємо
         if item['timeClose'] and item['timeClose'] * 1000 < datetime.now().timestamp() * 1000:
-            return 'hide'
+            return 'hide'                          # вже закритий
+        # Тести не фільтруємо за isRecent — якщо відкриті, показуємо
         is_open = not item['timeOpen'] or item['timeOpen'] * 1000 < datetime.now().timestamp() * 1000
         if is_open:
-            return 'show'
+            return 'show'                          # відкритий зараз
         if item['isOpenSoon']:
-            return 'show'
+            return 'show'                          # відкриється скоро (≤7д)
         if item['hasDeadline'] and item['deadlineDays'] <= 7:
-            return 'show'
+            return 'show'                          # дедлайн скоро
         return 'hide'
+    # Завдання (не тести)
     if item['hasDeadline'] and item['deadlineDays'] <= 7:
-        return 'show'
+        return 'show'                              # дедлайн ≤7 днів, актуальне
     if not item['hasDeadline']:
-        return 'nodeadline'
+        # Показуємо, якщо завдання актуальне (не з 2013 тощо)
+        if item.get('isRecent', True):
+            return 'show'                          # без дедлайну, актуальне
+        return 'hide'                              # давнє (2013 тощо)
     return 'hide'
 
 
@@ -296,41 +334,89 @@ def classify_item(item: dict) -> str:
 # Форматування
 # =============================================================
 
-def fmt_show(item: dict) -> str:
-    """Форматує елемент для показу (з дедлайном або тест)."""
-    label = trim_name(item['name'])
-    if item['isTest']:
-        parts = []
-        if item['timeOpen'] and item['timeOpen'] * 1000 > datetime.now().timestamp() * 1000:
-            parts.append('🔓 ' + fmt_date(datetime.fromtimestamp(item['timeOpen'])))
-        else:
-            parts.append('відкрито')
-        if item['timeClose'] and item['timeClose'] * 1000 > datetime.now().timestamp() * 1000:
-            parts.append('до ' + fmt_date(datetime.fromtimestamp(item['timeClose'])))
-        return label + ' | ' + ' '.join(parts)
-    if item['timeClose']:
-        s = label + ' | ' + fmt_date(datetime.fromtimestamp(item['timeClose']))
-        if item['deadlineDays'] < 0:
-            s += ' ⚠️'
-        else:
-            s += f' ({int(item["deadlineDays"])}д)'
-        return s
-    return label + ' | (без д/н)'
-
-
-def fmt_nodeadline(item: dict) -> str:
-    """Форматує елемент без дедлайну."""
-    return trim_name(item['name']) + ' | (без д/н)'
-
-
 # =============================================================
 # Побудова звіту
 # =============================================================
 
+TYPE_LABELS = {
+    'lab': 'ЛР',
+    'self': 'СР',
+    'test': 'Тести',
+    'control': 'Контрольні',
+    'practical': 'Практичні',
+    'coursework': 'Курсові',
+    'essay': 'Реферати',
+    'module': 'Модулі',
+    'other': 'Інше',
+}
+
+
+def extract_number(name: str) -> str:
+    """Витягує число (в т.ч. складене 1.2, 3.1) з назви завдання."""
+    # Спочатку зі скорочення (ЛР1.2 → 1.2)
+    m = re.search(r'(?:ЛР|СР|ПР)\s*(\d+(?:\.\d+)?)', name, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # З повної назви (№1.6 → 1.6)
+    m = re.search(r'№\s*(\d+(?:\.\d+)?)', name)
+    if m:
+        return m.group(1)
+    # Будь-яке число (в т.ч. складене)
+    m = re.search(r'\d+(?:\.\d+)?', name)
+    if m:
+        return m.group(0)
+    return name
+
+
+def _should_skip(item: dict) -> bool:
+    """Перевіряє чи варто пропустити завдання (самоконтроль тощо)."""
+    name_lower = item.get('name', '').lower()
+    if 'самоконтрол' in name_lower:
+        return True
+    return False
+
+
+def _item_name_with_deadline(item: dict) -> str:
+    """
+    Форматує назву завдання + дедлайн (якщо є) з іконкою.
+    Для ЛР/СР/ПР — тільки номер.
+    Для тестів — період відкриття.
+    """
+    t = detect_type(item['name'])
+    if t in ('lab', 'self', 'practical'):
+        num = extract_number(item['name'])
+        name = num
+    elif item['isTest']:
+        name = trim_name(item['name'])
+    else:
+        name = abbreviate_name(item['name'])
+
+    if item['isTest']:
+        # Тест: показуємо період відкриття
+        parts = []
+        if item['timeOpen'] and item['timeOpen'] * 1000 > datetime.now().timestamp() * 1000:
+            parts.append('🔓з ' + fmt_date(datetime.fromtimestamp(item['timeOpen'])))
+        if item['timeClose']:
+            parts.append('до ' + fmt_date(datetime.fromtimestamp(item['timeClose'])))
+        if parts:
+            return name + ' (' + ' '.join(parts) + ')'
+        return name
+    elif item['hasDeadline'] and item['timeClose']:
+        dd = item['deadlineDays']
+        if dd < 0:
+            return f'{name}⛔({int(dd)}д)'
+        elif dd <= 5:
+            return f'{name}⚠️({int(dd)}д)'
+        else:
+            return f'{name}({int(dd)}д)'
+    return name
+
+
 def build_report(courses_data: list) -> str:
     """
     Будує текст звіту для Telegram.
-    courses_data — список словників {name, items}.
+    Кожен курс: спочатку назва, потім рядки з групами (ЛР, СР, Тести...),
+    всередині групи — через кому. Біля кожного завдання дедлайн + іконка.
     """
     lines = []
     total = 0
@@ -341,41 +427,37 @@ def build_report(courses_data: list) -> str:
 
     for course in courses_data:
         items = course.get('items', [])
-        show = []
-        nodead = []
-
-        for item in items:
-            cls = classify_item(item)
-            if cls == 'show':
-                show.append(item)
-            elif cls == 'nodeadline':
-                nodead.append(item)
-
-        if not show and not nodead:
+        if not items:
             continue
 
-        lines.append(f'▸ {course["name"]}')
-        show.sort(key=lambda x: x['deadlineDays'])
-        for item in show:
-            lines.append(fmt_show(item))
-            total += 1
+        # Фільтруємо самоконтроль
+        items = [it for it in items if not _should_skip(it)]
+        if not items:
+            continue
 
-        if nodead:
-            nodead.sort(key=lambda x: num_from_name(x['name']))
-            groups = {}
-            for item in nodead:
-                t = detect_type(item['name'])
-                groups.setdefault(t, []).append(item)
-            for t in TYPE_ORDER:
-                g = groups.get(t)
-                if not g:
-                    continue
-                n = min(len(g), 2)
-                for i in range(n):
-                    lines.append(fmt_nodeadline(g[i]))
-                    total += 1
-                if len(g) > 2:
-                    lines.append('⋯')
+        # Групуємо за типом
+        groups: dict[str, list] = {}
+        for item in items:
+            t = detect_type(item['name'])
+            groups.setdefault(t, []).append(item)
+
+        lines.append(f'▸ {course["name"]}')
+
+        for t in TYPE_ORDER:
+            g = groups.get(t)
+            if not g:
+                continue
+
+            # Сортуємо за номером
+            g.sort(key=lambda x: num_from_name(abbreviate_name(x['name'])))
+
+            # Форматуємо кожен елемент з дедлайном
+            names = [_item_name_with_deadline(item) for item in g]
+
+            label = TYPE_LABELS.get(t, t)
+            line = f'{label}: {", ".join(names)}'
+            lines.append(line)
+            total += len(g)
 
         lines.append('')
 
@@ -469,6 +551,13 @@ def run_report(config: Optional[dict] = None) -> dict:
             token = get_moodle_token(email, password, moodle_url)
             if not token:
                 raise Exception('Не вдалося отримати Moodle API token')
+            # Автоматично зберігаємо токен для наступних запусків
+            try:
+                from .config_manager import save_config as _save_cfg
+                _save_cfg({'moodle_token': token})
+                logger.info("Moodle reporter: токен автоматично збережено в конфіг")
+            except Exception as e:
+                logger.warning(f"Moodle reporter: не вдалось зберегти токен: {e}")
 
         # Отримуємо курси
         courses = get_courses(token, moodle_url)
@@ -496,13 +585,16 @@ def run_report(config: Optional[dict] = None) -> dict:
             try:
                 quizzes = get_quizzes(c['id'], token, moodle_url)
                 for q in quizzes:
-                    items.append(classify(q, semester, True))
+                    item = classify(q, semester, True)
+                    if classify_item(item) == 'hide':
+                        continue
+                    items.append(item)
             except Exception:
                 pass
 
             if items:
                 course_data.append({
-                    'name': trim_name(c.get('fullname', '')),
+                    'name': c.get('fullname', ''),
                     'items': items,
                 })
 

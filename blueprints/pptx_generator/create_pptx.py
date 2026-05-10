@@ -61,6 +61,12 @@ def create_presentation(filename, slides_data, images_dir=None):
     # Доступні варіанти для кіл (4 опції)
     circle_layout_options = ['corner_top_left', 'corner_top_right', 'corner_bottom_left', 'corner_bottom_right']
     
+    # Доступні варіанти для сайдбару
+    sidebar_layout_options = ['sidebar_left', 'sidebar_right']
+    
+    # Доступні варіанти для хедера/футера
+    header_bar_layout_options = ['header_bar', 'footer_bar']
+    
     # Create title slide with white background
     slide_layout = prs.slide_layouts[6]  # Blank layout
     title_slide = prs.slides.add_slide(slide_layout)
@@ -149,12 +155,18 @@ def create_presentation(filename, slides_data, images_dir=None):
     city_para.alignment = 1  # Center
     
     # Choose design type once for the entire presentation (except title slide)
-    design_type = random.choice(['rectangle', 'circle'])
+    design_type = random.choice(['rectangle', 'circle', 'sidebar', 'header_bar', 'diagonal_split', 'triangle_accents', 'thin_frame'])
     rectangle_layout = None
+    sidebar_layout = None
+    header_bar_layout = None
     
     # If rectangle design, choose layout once for consistency
     if design_type == 'rectangle':
         rectangle_layout = random.choice(rectangle_layout_options)
+    elif design_type == 'sidebar':
+        sidebar_layout = random.choice(sidebar_layout_options)
+    elif design_type == 'header_bar':
+        header_bar_layout = random.choice(header_bar_layout_options)
     
     # Content slides
     slide_count = 0
@@ -172,9 +184,19 @@ def create_presentation(filename, slides_data, images_dir=None):
         # Apply background design based on chosen type
         if design_type == 'rectangle':
             _add_background_rectangles(slide, prs.slide_width, prs.slide_height, color1, color2, rectangle_layout)
-        else:
+        elif design_type == 'circle':
             circle_layout = random.choice(circle_layout_options)
             _add_background_circles(slide, prs.slide_width, prs.slide_height, color1, color2, circle_layout)
+        elif design_type == 'sidebar':
+            _add_sidebar(slide, prs.slide_width, prs.slide_height, color1, color2, sidebar_layout)
+        elif design_type == 'header_bar':
+            _add_header_bar(slide, prs.slide_width, prs.slide_height, color1, color2, header_bar_layout)
+        elif design_type == 'diagonal_split':
+            _add_diagonal_split(slide, prs.slide_width, prs.slide_height, color1, color2)
+        elif design_type == 'triangle_accents':
+            _add_triangle_accents(slide, prs.slide_width, prs.slide_height, color1, color2)
+        elif design_type == 'thin_frame':
+            _add_thin_frame(slide, prs.slide_width, prs.slide_height, color1, color2)
         
         # Додаємо заголовок
         if title_text:
@@ -473,3 +495,184 @@ def _add_background_circles(slide, slide_width, slide_height, color1, color2, la
     fill2.gradient_stops[1].color.rgb = color2
 
     _lock_shape(circle2)
+
+
+def _add_sidebar(slide, slide_width, slide_height, color1, color2, layout):
+    """
+    Add sidebar design - vertical colored bar on left or right side.
+    
+    Layout options:
+    - sidebar_left: vertical bar on left side (18% width)
+    - sidebar_right: vertical bar on right side (18% width)
+    """
+    sidebar_width = int(slide_width * 0.18)
+    
+    if layout == 'sidebar_left':
+        x = 0
+        width = sidebar_width
+    else:  # sidebar_right
+        x = slide_width - sidebar_width
+        width = sidebar_width
+    
+    sidebar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        x, 0,
+        width, slide_height
+    )
+    sidebar.z_order = 0
+    sidebar.line.fill.background()
+    
+    fill = sidebar.fill
+    fill.gradient()
+    fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
+    fill.gradient_stops[0].color.rgb = color1
+    fill.gradient_stops[1].color.rgb = color2
+    
+    _lock_shape(sidebar)
+
+
+def _add_header_bar(slide, slide_width, slide_height, color1, color2, layout):
+    """
+    Add header or footer bar design - horizontal colored band.
+    
+    Layout options:
+    - header_bar: horizontal bar at top (15% height)
+    - footer_bar: horizontal bar at bottom (15% height)
+    """
+    bar_height = int(slide_height * 0.15)
+    
+    if layout == 'header_bar':
+        x = 0
+        y = 0
+        height = bar_height
+    else:  # footer_bar
+        x = 0
+        y = slide_height - bar_height
+        height = bar_height
+    
+    bar = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        x, y,
+        slide_width, height
+    )
+    bar.z_order = 0
+    bar.line.fill.background()
+    
+    fill = bar.fill
+    fill.gradient()
+    fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
+    fill.gradient_stops[0].color.rgb = color1
+    fill.gradient_stops[1].color.rgb = color2
+    
+    _lock_shape(bar)
+
+
+def _add_diagonal_split(slide, slide_width, slide_height, color1, color2):
+    """
+    Add diagonal split design - rectangle with diagonal gradient.
+    """
+    rect = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        0, 0,
+        slide_width, slide_height
+    )
+    rect.z_order = 0
+    rect.line.fill.background()
+    
+    fill = rect.fill
+    fill.gradient()
+    fill.gradient_angle = 45  # Diagonal angle
+    fill.gradient_stops[0].color.rgb = color1
+    fill.gradient_stops[1].color.rgb = color2
+    
+    _lock_shape(rect)
+
+
+def _add_triangle_accents(slide, slide_width, slide_height, color1, color2):
+    """
+    Add triangle accents in corners - small triangles in top-left and bottom-right.
+    """
+    triangle_size = int(min(slide_width, slide_height) * 0.15)
+    
+    # Add triangles in top-left and bottom-right corners
+    corner_configs = [
+        (0, 0, triangle_size, triangle_size),  # top-left
+        (slide_width - triangle_size, slide_height - triangle_size, triangle_size, triangle_size),  # bottom-right
+    ]
+    
+    for x, y, width, height in corner_configs:
+        triangle = slide.shapes.add_shape(
+            MSO_SHAPE.RIGHT_TRIANGLE,
+            x, y,
+            width, height
+        )
+        triangle.z_order = 0
+        triangle.line.fill.background()
+        
+        fill = triangle.fill
+        fill.gradient()
+        fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
+        fill.gradient_stops[0].color.rgb = color1
+        fill.gradient_stops[1].color.rgb = color2
+        
+        _lock_shape(triangle)
+
+
+def _add_thin_frame(slide, slide_width, slide_height, color1, color2):
+    """
+    Add thin frame design - colored border around the entire slide.
+    Frame width is 0.2 inches.
+    """
+    frame_width = int(Inches(0.2))  # 0.2 inches frame
+    
+    # Top frame
+    top = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        0, 0,
+        slide_width, frame_width
+    )
+    top.z_order = 0
+    top.line.fill.background()
+    fill = top.fill
+    fill.solid()
+    fill.fore_color.rgb = color1
+    _lock_shape(top)
+    
+    # Bottom frame
+    bottom = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        0, slide_height - frame_width,
+        slide_width, frame_width
+    )
+    bottom.z_order = 0
+    bottom.line.fill.background()
+    fill = bottom.fill
+    fill.solid()
+    fill.fore_color.rgb = color1
+    _lock_shape(bottom)
+    
+    # Left frame
+    left = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        0, 0,
+        frame_width, slide_height
+    )
+    left.z_order = 0
+    left.line.fill.background()
+    fill = left.fill
+    fill.solid()
+    fill.fore_color.rgb = color1
+    _lock_shape(left)
+    
+    # Right frame
+    right = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        slide_width - frame_width, 0,
+        frame_width, slide_height
+    )
+    right.z_order = 0
+    right.line.fill.background()
+    fill = right.fill
+    fill.solid()
+    fill.fore_color.rgb = color1
+    _lock_shape(right)

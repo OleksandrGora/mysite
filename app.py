@@ -112,19 +112,38 @@ def auth_callback():
         logger.error(f"[AUTH_CALLBACK] Failed to get token: {e}")
         return redirect(url_for('login'))
     
+    # Validate token has required fields
+    if not token.get('refresh_token'):
+        logger.warning("[AUTH_CALLBACK] No refresh_token in token, redirecting to re-authorize")
+        return redirect(url_for('login'))
+    
+    scope = token.get('scope', '')
+    if isinstance(scope, list):
+        scope = ' '.join(scope)
+    
+    if 'drive' not in scope.lower():
+        logger.warning(f"[AUTH_CALLBACK] Token missing Drive scope. Scope: {scope}")
+        return redirect(url_for('login'))
+    
     user_info = token.get('userinfo')
-    email = user_info.get('email')
+    email = user_info.get('email') if user_info else None
+    
+    if not email:
+        logger.error("[AUTH_CALLBACK] No email in token")
+        return redirect(url_for('login'))
+    
     logger.info(f"[AUTH_CALLBACK] User email: {email}")
     
     if email not in ALLOWED_EMAILS:
         logger.warning(f"[AUTH_CALLBACK] Access denied for {email}")
         return render_template('access_denied.html', email=email), 403
     
-    # Converter flow depends on OAuth token in session
+    # Store token with normalized scope
+    token['scope'] = scope
     session['token'] = token
     session['email'] = email
     session.modified = True
-    logger.info(f"[AUTH_CALLBACK] Session set for {email}, redirecting to index")
+    logger.info(f"[AUTH_CALLBACK] Session set for {email}, token validated with refresh_token and Drive scope")
     return redirect(url_for('index'))
     
 @app.route('/logout')

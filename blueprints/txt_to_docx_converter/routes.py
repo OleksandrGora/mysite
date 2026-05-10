@@ -44,7 +44,25 @@ def is_token_valid():
     Повертає True якщо токен валідний, False якщо потрібен повторний логін.
     """
     t = session.get('token')
-    if not t or not t.get('refresh_token'):
+    if not t:
+        logger.warning("[TOKEN_VALID] No token in session")
+        return False
+    
+    if not t.get('refresh_token'):
+        logger.warning("[TOKEN_VALID] No refresh_token in session token")
+        return False
+    
+    if not t.get('access_token'):
+        logger.warning("[TOKEN_VALID] No access_token in session token")
+        return False
+    
+    # Check if scope includes drive
+    scope = t.get('scope', '')
+    if isinstance(scope, list):
+        scope = ' '.join(scope)
+    
+    if 'drive' not in scope.lower():
+        logger.warning(f"[TOKEN_VALID] Token missing Drive scope. Scope: {scope}")
         return False
 
     creds = _make_credentials()
@@ -52,36 +70,63 @@ def is_token_valid():
     if not creds.valid:
         if creds.expired and creds.refresh_token:
             try:
+                logger.info("[TOKEN_VALID] Attempting to refresh token...")
                 creds.refresh(GoogleRequest())
                 session['token']['access_token'] = creds.token
                 session.modified = True
+                logger.info("[TOKEN_VALID] Token refreshed successfully")
             except Exception as e:
-                logger.error("Token refresh failed: %s", e)
+                logger.error("[TOKEN_VALID] Token refresh failed: %s", e)
                 return False
         else:
+            logger.warning("[TOKEN_VALID] Token not valid and cannot refresh")
             return False
 
     return True
 
 ## 4. Google Drive API клієнт
 def get_drive_service():
-    t = session['token']
+    t = session.get('token')
+    if not t:
+        logger.error("[DRIVE_SERVICE] No token in session!")
+        raise RuntimeError("TOKEN_EXPIRED")
+    
+    # Normalize scope to list
+    scope = t.get('scope', '')
+    if isinstance(scope, str):
+        scopes = scope.split()
+    elif isinstance(scope, list):
+        scopes = scope
+    else:
+        scopes = []
+    
+    # Ensure Drive scope is included
+    drive_scope = 'https://www.googleapis.com/auth/drive'
+    if drive_scope not in scopes:
+        scopes.append(drive_scope)
+    
     creds = Credentials(
         token=t.get('access_token'),
         refresh_token=t.get('refresh_token'),
         token_uri='https://oauth2.googleapis.com/token',
         client_id=os.environ['GOOGLE_CLIENT_ID'],
         client_secret=os.environ['GOOGLE_CLIENT_SECRET'],
-        scopes=t.get('scope', '').split()
+        scopes=scopes
     )
-    if not creds.valid and creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(GoogleRequest())
-            session['token']['access_token'] = creds.token
-            session.modified = True
-        except Exception as e:
-            logger.error("Failed to refresh token in get_drive_service: %s", e)
+    
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(GoogleRequest())
+                session['token']['access_token'] = creds.token
+                session.modified = True
+            except Exception as e:
+                logger.error("[DRIVE_SERVICE] Failed to refresh token: %s", e)
+                raise RuntimeError("TOKEN_EXPIRED")
+        else:
+            logger.error("[DRIVE_SERVICE] Credentials not valid and cannot refresh")
             raise RuntimeError("TOKEN_EXPIRED")
+    
     return build('drive', 'v3', credentials=creds)
 
 ## 5. Створення або отримання папки 'Openclaw' в Drive

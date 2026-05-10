@@ -81,7 +81,7 @@ google = oauth.register(
 )
 
 SERVICES = [
-    {"name": "Конвертер LaTeX → Google Doc, Microsoft Word", "url": "/converter", "desc": "Конвертація TXT/MD файлів"},
+    {"name": "Конвертор тексту з формулами, таблицями → Google Doc, Microsoft Word", "url": "/converter", "desc": "Конвертація TXT/MD файлів"},
     {"name": "Генератор документів", "url": "/doc-generator", "desc": "Генерація документів з шаблонів і джерел"},
     {"name": "Генератор PowerPoint презентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
     {"name": "OCR Текстовий Розпізнавач", "url": "/ocr-processor", "desc": "Розпізнавання друкованого та рукописного тексту зі зображень"},

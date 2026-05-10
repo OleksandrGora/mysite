@@ -11,12 +11,19 @@
       background: #f5f7fa;
       color: #1a1a2e;
       line-height: 1.6;
-      min-height: 100vh;
-      padding: 40px 20px;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
     }
     .container {
       max-width: min(60%, 1200px);
       margin: 0 auto;
+      height: 95vh;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
     }
     h1 {
       font-size: 26px;
@@ -29,15 +36,15 @@
       border-radius: 12px;
       padding: 28px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-      margin-bottom: 20px;
       display: flex;
       align-items: center;
       gap: 12px;
     }
     form {
-      display: block;
-      gap: 12px;
-      align-items: stretch;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      flex: 1;
     }
     input[type=file] {
       flex: 1;
@@ -172,6 +179,9 @@
       padding: 28px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       margin-bottom: 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
     .text-input-card h2 {
       font-size: 20px;
@@ -187,13 +197,14 @@
     }
     textarea {
       width: 100%;
-      height: 20vh;
+      flex: 1;
+      min-height: 200px;
       padding: 12px;
       border: 1px solid #d1d5db;
       border-radius: 8px;
       font-size: 16px;
       font-family: 'Courier New', monospace;
-      resize: vertical;
+      resize: none;
       background: #fff;
     }
     textarea::placeholder {
@@ -217,6 +228,128 @@
       transition: background 0.2s;
     }
     .btn-secondary:hover { background: #e0e0e0; }
+    
+    /* Spinner styles */
+    .btn-loading {
+      position: relative;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+    
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid transparent;
+      border-top: 2px solid currentColor;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    
+    /* Mobile responsive styles */
+    @media (max-width: 768px) {
+      body {
+        padding: 0;
+      }
+      
+      .container {
+        max-width: 95%;
+        height: 100vh;
+        padding: 15px;
+        margin: 0;
+      }
+      
+      h1 {
+        font-size: 20px;
+        margin-bottom: 20px;
+        text-align: center;
+      }
+      
+      .text-input-card, .upload-card {
+        padding: 20px;
+      }
+      
+      .text-input-card label {
+        font-size: 14px;
+        margin-bottom: 6px;
+      }
+      
+      textarea {
+        font-size: 16px;
+        padding: 10px;
+        min-height: 150px;
+      }
+      
+      .upload-card {
+        flex-direction: column;
+        gap: 15px;
+        align-items: stretch;
+      }
+      
+      .upload-card input[type="file"] {
+        font-size: 14px;
+        padding: 8px 12px;
+      }
+      
+      .upload-card > div {
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      button {
+        font-size: 16px;
+        padding: 12px 20px;
+        min-height: 44px; /* iOS touch target */
+      }
+      
+      .btn-secondary {
+        font-size: 14px;
+        padding: 10px 16px;
+        min-height: 44px;
+      }
+      
+      .alert {
+        padding: 12px 15px;
+        font-size: 13px;
+      }
+      
+      .alert pre {
+        font-size: 12px;
+        padding: 10px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .container {
+        padding: 10px;
+      }
+      
+      .text-input-card, .upload-card {
+        padding: 15px;
+      }
+      
+      h1 {
+        font-size: 18px;
+        margin-bottom: 15px;
+      }
+      
+      .btn-secondary {
+        font-size: 12px;
+        padding: 8px 12px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -229,7 +362,7 @@
 
     <div class="text-input-card">
       <label for="text_input">Текст для конвертації:</label>
-      <textarea id="text_input" name="text_input" placeholder="Встав текст сюди або відкрий файл..."></textarea>
+      <textarea id="text_input" name="text_input" placeholder="Встав текст сюди або відкрий файл...">{{ text_input or '' }}</textarea>
     </div>
 
     <div class="upload-card">
@@ -277,6 +410,82 @@
     function goToHome() {
       window.location.href = '/';
     }
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.querySelector('form');
+      const googleBtn = document.querySelector('button[value="google"]');
+      const downloadBtn = document.querySelector('button[value="download"]');
+      const fileInput = document.querySelector('input[type="file"]');
+      const textArea = document.querySelector('textarea');
+      
+      function setButtonLoading(button, loading) {
+        if (loading) {
+          button.classList.add('btn-loading');
+          button.disabled = true;
+          
+          // Remove existing spinner if any
+          const existingSpinner = button.querySelector('.spinner');
+          if (existingSpinner) {
+            existingSpinner.remove();
+          }
+          
+          // Add spinner
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner';
+          button.appendChild(spinner);
+          
+          // Disable other action button
+          const otherBtn = button === googleBtn ? downloadBtn : googleBtn;
+          otherBtn.disabled = true;
+          
+          // Also disable file input and textarea
+          fileInput.disabled = true;
+          textArea.disabled = true;
+        } else {
+          button.classList.remove('btn-loading');
+          button.disabled = false;
+          
+          // Remove spinner
+          const spinner = button.querySelector('.spinner');
+          if (spinner) {
+            spinner.remove();
+          }
+          
+          // Re-enable other action button
+          const otherBtn = button === googleBtn ? downloadBtn : googleBtn;
+          otherBtn.disabled = false;
+          
+          // Re-enable file input and textarea
+          fileInput.disabled = false;
+          textArea.disabled = false;
+        }
+      }
+      
+      // Handle form submission
+      form.addEventListener('submit', function(e) {
+        // Small delay to ensure form submission starts
+        setTimeout(() => {
+          const submitter = document.activeElement;
+          console.log('Form submitted, submitter:', submitter);
+          if (submitter && (submitter.type === 'submit' || submitter.type === 'button')) {
+            const value = submitter.getAttribute('value');
+            console.log('Submitter value:', value);
+            if (value === 'google' || value === 'download') {
+              console.log('Setting button loading for:', value);
+              setButtonLoading(submitter, true);
+            }
+          }
+        }, 10);
+      });
+      
+      // Handle page navigation (back/forward) - reset buttons
+      window.addEventListener('pageshow', function(event) {
+        if (event.persisted) {
+          setButtonLoading(googleBtn, false);
+          setButtonLoading(downloadBtn, false);
+        }
+      });
+    });
   </script>
 </body>
 </html>

@@ -16,33 +16,59 @@
     .container {
       max-width: 720px;
       margin: 0 auto;
-      padding: 40px 20px;
+      padding: 20px 16px;
+    }
+    @media (min-width: 768px) {
+      .container {
+        padding: 40px 20px;
+      }
     }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 28px;
-      padding-bottom: 20px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
       border-bottom: 1px solid #e1e4e8;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    @media (min-width: 768px) {
+      header {
+        margin-bottom: 28px;
+        padding-bottom: 20px;
+      }
     }
     header h1 {
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 600;
+      flex: 1;
+      min-width: 0;
+    }
+    @media (min-width: 768px) {
+      header h1 {
+        font-size: 24px;
+      }
     }
     .back-link {
       font-size: 14px;
       color: #0366d6;
       text-decoration: none;
+      white-space: nowrap;
     }
     .back-link:hover { text-decoration: underline; }
 
     .section {
       background: #fff;
       border-radius: 10px;
-      padding: 20px 24px;
+      padding: 16px;
       margin-bottom: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    @media (min-width: 768px) {
+      .section {
+        padding: 20px 24px;
+      }
     }
     .section-title {
       font-size: 15px;
@@ -87,26 +113,48 @@
       display: flex;
       gap: 12px;
       align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 767px) {
+      .form-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
     }
     .form-row .form-group {
       flex: 1;
+      min-width: 0;
     }
     .form-row .form-group.small {
       flex: 0 0 auto;
       min-width: 120px;
+    }
+    @media (max-width: 767px) {
+      .form-row .form-group.small {
+        min-width: auto;
+        flex: 1;
+      }
     }
 
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 8px 16px;
+      padding: 12px 16px;
       font-size: 14px;
       font-weight: 500;
       border: 1px solid transparent;
       border-radius: 6px;
       cursor: pointer;
       transition: background 0.2s, box-shadow 0.2s;
+      min-height: 44px;
+      touch-action: manipulation;
+    }
+    @media (min-width: 768px) {
+      .btn {
+        padding: 8px 16px;
+        min-height: auto;
+      }
     }
     .btn:disabled {
       opacity: 0.6;
@@ -144,6 +192,16 @@
       flex-wrap: wrap;
       align-items: center;
     }
+    @media (max-width: 767px) {
+      .actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .actions .btn {
+        width: 100%;
+        justify-content: center;
+      }
+    }
 
     .status-card {
       display: flex;
@@ -153,6 +211,20 @@
       background: #f6f8fa;
       border-radius: 8px;
       margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 767px) {
+      .status-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .status-card > * {
+        width: 100%;
+      }
+      .status-card #lastRunBadge {
+        text-align: right;
+      }
     }
     .status-label {
       font-size: 13px;
@@ -186,15 +258,23 @@
       background: #1e1e1e;
       color: #d4d4d4;
       font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 13px;
-      padding: 16px;
+      font-size: 12px;
+      padding: 12px;
       border-radius: 8px;
       white-space: pre-wrap;
       word-wrap: break-word;
-      max-height: 300px;
+      max-height: 250px;
       overflow-y: auto;
       margin-top: 12px;
       display: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    @media (min-width: 768px) {
+      .log-box {
+        font-size: 13px;
+        padding: 16px;
+        max-height: 300px;
+      }
     }
     .log-box.visible {
       display: block;
@@ -205,11 +285,22 @@
       align-items: center;
       gap: 8px;
       cursor: pointer;
+      touch-action: manipulation;
     }
     .toggle-label input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       cursor: pointer;
+      min-width: 20px;
+      min-height: 20px;
+    }
+    @media (min-width: 768px) {
+      .toggle-label input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        min-width: 18px;
+        min-height: 18px;
+      }
     }
 
     .spinner {

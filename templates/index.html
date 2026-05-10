@@ -16,20 +16,40 @@
     .container {
       max-width: 720px;
       margin: 0 auto;
-      padding: 40px 20px;
+      padding: 20px 16px;
+    }
+    @media (min-width: 768px) {
+      .container {
+        padding: 40px 20px;
+      }
     }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 32px;
-      padding-bottom: 20px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
       border-bottom: 1px solid #e1e4e8;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    @media (min-width: 768px) {
+      header {
+        margin-bottom: 32px;
+        padding-bottom: 20px;
+      }
     }
     h1 {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 600;
       color: #1a1a2e;
+      flex: 1;
+      min-width: 0;
+    }
+    @media (min-width: 768px) {
+      h1 {
+        font-size: 28px;
+      }
     }
     .user-info {
       display: flex;
@@ -37,6 +57,15 @@
       gap: 12px;
       font-size: 14px;
       color: #586069;
+      white-space: nowrap;
+    }
+    @media (max-width: 767px) {
+      .user-info {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        text-align: right;
+      }
     }
     .user-info a {
       color: #0366d6;
@@ -53,22 +82,35 @@
     .service-card {
       background: #fff;
       border-radius: 10px;
-      padding: 20px 24px;
+      padding: 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       transition: box-shadow 0.2s, transform 0.15s;
       text-decoration: none;
       color: inherit;
       display: block;
+      touch-action: manipulation;
+      min-height: 44px;
+    }
+    @media (min-width: 768px) {
+      .service-card {
+        padding: 20px 24px;
+        min-height: auto;
+      }
     }
     .service-card:hover {
       box-shadow: 0 4px 12px rgba(0,0,0,0.12);
       transform: translateY(-2px);
     }
     .service-name {
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 600;
       color: #0366d6;
       margin-bottom: 6px;
+    }
+    @media (min-width: 768px) {
+      .service-name {
+        font-size: 17px;
+      }
     }
     .service-card:hover .service-name {
       color: #0256c7;
@@ -79,8 +121,15 @@
     }
     .empty-state {
       text-align: center;
-      padding: 60px 20px;
+      padding: 40px 20px;
       color: #586069;
+      font-size: 16px;
+    }
+    @media (min-width: 768px) {
+      .empty-state {
+        padding: 60px 20px;
+        font-size: inherit;
+      }
     }
   </style>
 </head>

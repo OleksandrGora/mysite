@@ -301,9 +301,220 @@
         .toast.error { background: #f44336; }
         .toast.info { background: #2196f3; }
         
+        /* Mobile responsive styles */
         @media (max-width: 768px) {
+            body {
+                padding: 0;
+                width: 100%;
+                max-width: 100%;
+            }
+            
             .container {
                 grid-template-columns: 1fr;
+                padding: 15px;
+                gap: 15px;
+            }
+            
+            .main-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+                margin-bottom: 15px;
+            }
+            
+            h1 {
+                font-size: 20px;
+                margin-bottom: 0;
+            }
+            
+            h2 {
+                font-size: 18px;
+                margin: 15px 0 10px;
+            }
+            
+            .panel {
+                padding: 15px;
+            }
+            
+            .input-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: stretch;
+            }
+            
+            .btn-copy-prompt {
+                align-self: flex-start;
+                font-size: 12px;
+                padding: 8px 12px;
+            }
+            
+            textarea {
+                min-height: 200px;
+                font-size: 16px; /* Prevent zoom on iOS */
+                padding: 10px;
+            }
+            
+            .provider-selector {
+                padding: 12px;
+                margin-bottom: 15px;
+            }
+            
+            .provider-row {
+                flex-direction: column;
+                gap: 15px;
+                align-items: stretch;
+            }
+            
+            .radio-group {
+                flex-direction: column;
+                gap: 12px;
+            }
+            
+            .radio-label {
+                font-size: 14px;
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: #f9f9f9;
+            }
+            
+            .radio-label input[type="radio"] {
+                margin-right: 8px;
+            }
+            
+            .checkbox-label {
+                padding-left: 0;
+                border-left: none;
+                font-size: 14px;
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                background: #f9f9f9;
+            }
+            
+            .token-display {
+                padding-left: 0;
+                border-left: none;
+                text-align: center;
+                font-size: 13px;
+            }
+            
+            .actions {
+                flex-direction: column;
+                gap: 12px;
+                margin-top: 15px;
+            }
+            
+            .btn-primary, .btn-success {
+                font-size: 16px;
+                padding: 12px 20px;
+                min-height: 44px; /* iOS touch target */
+            }
+            
+            .btn-secondary {
+                font-size: 14px;
+                padding: 10px 16px;
+                min-height: 44px;
+            }
+            
+            .status-display {
+                min-width: auto;
+                font-size: 13px;
+                padding: 6px 10px;
+            }
+            
+            #progress-log {
+                font-size: 12px;
+                max-height: 150px;
+                padding: 10px 12px;
+            }
+            
+            .validation-result {
+                padding: 12px;
+                font-size: 13px;
+            }
+            
+            .example-section {
+                padding: 12px;
+                margin-top: 15px;
+            }
+            
+            .example-section h3 {
+                font-size: 14px;
+            }
+            
+            .example-code {
+                font-size: 0.8em;
+                padding: 10px;
+            }
+            
+            .toast {
+                left: 10px;
+                right: 10px;
+                bottom: 10px;
+                font-size: 14px;
+                padding: 12px 15px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 0;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .main-header {
+                margin-bottom: 10px;
+            }
+            
+            h1 {
+                font-size: 18px;
+            }
+            
+            h2 {
+                font-size: 16px;
+            }
+            
+            .panel {
+                padding: 12px;
+            }
+            
+            .provider-selector {
+                padding: 10px;
+            }
+            
+            .btn-copy-prompt {
+                font-size: 11px;
+                padding: 6px 10px;
+            }
+            
+            textarea {
+                min-height: 150px;
+                padding: 8px;
+            }
+            
+            .btn-primary, .btn-success {
+                font-size: 15px;
+                padding: 10px 16px;
+            }
+            
+            .btn-secondary {
+                font-size: 13px;
+                padding: 8px 12px;
+            }
+            
+            #progress-log {
+                font-size: 11px;
+                max-height: 120px;
+                padding: 8px 10px;
+            }
+            
+            .example-code {
+                font-size: 0.75em;
+                padding: 8px;
             }
         }
     </style>

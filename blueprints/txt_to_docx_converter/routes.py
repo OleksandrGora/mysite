@@ -163,6 +163,9 @@ def preprocess(text):
     text = text.replace('\u2212', '-')
 
     text = re.sub(r'^\s*---+\s*$', '\n\n\u00A0\n\n', text, flags=re.MULTILINE)
+    # Додаємо порожній рядок перед таблицями
+    text = re.sub(r'([^\n|])\n(\|)', r'\1\n\n\2', text)
+
     text = re.sub(r'([^\n])\n(- )', r'\1\n\n\2', text)
     text = re.sub(r'([^\n])\n(\* )', r'\1\n\n\2', text)
     text = re.sub(r'([^\n])\n(\d+\. )', r'\1\n\n\2', text)
@@ -350,14 +353,15 @@ def converter():
         f = request.files.get('file')
 
         if not text_input and not f:
-            return render_template('txt_to_docx_converter/index-converter.html', error='Please enter text or select a file')
+            return render_template('txt_to_docx_converter/index-converter.html', error='Please enter text or select a file', text_input=text_input)
 
         if text_input and f and f.filename:
             return render_template(
                 'txt_to_docx_converter/index-converter.html',
                 error='Both text and file provided. Text input will be used for conversion.',
                 warnings=[],
-                filename=f.filename
+                filename=f.filename,
+                text_input=text_input
             )
 
         if text_input:
@@ -391,7 +395,8 @@ def converter():
                     'txt_to_docx_converter/index-converter.html',
                     error=error_text,
                     warnings=warnings,
-                    filename=filename
+                    filename=filename,
+                    text_input=text_input
                 )
 
             postprocess_docx(dst)
@@ -444,14 +449,16 @@ def converter():
                     'txt_to_docx_converter/index-converter.html',
                     error=f'Файл конвертовано, але помилка завантаження на Drive: {error_msg}',
                     warnings=warnings,
-                    filename=filename
+                    filename=filename,
+                    text_input=text_input
                 )
 
             return render_template(
                 'txt_to_docx_converter/index-converter.html',
                 link=uploaded.get('webViewLink'),
                 warnings=warnings,
-                filename=filename
+                filename=filename,
+                text_input=text_input
             )
 
     return render_template('txt_to_docx_converter/index-converter.html')

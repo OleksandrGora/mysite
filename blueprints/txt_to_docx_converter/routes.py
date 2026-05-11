@@ -153,9 +153,21 @@ def get_or_create_folder(drive, folder_name):
 
 ## 1. Очищення тексту, заміна LaTeX-команд
 def preprocess(text):
+    # Нормалізуємо закінчення рядків
+    text = text.replace('\r\n', '\n')
+    text = text.replace('\r', '\n')
+    
     for old, new in REPLACEMENTS:
         text = text.replace(old, new)
 
+    # Прибираємо жирний текст всередині таблиць
+    text = re.sub(r'(\|[^|\n]*)\*\*([^*|\n]*)\*\*([^|\n]*\|)', r'\1\2\3', text)
+
+    # Екрануємо зірочки-виноски після цифр
+    text = re.sub(r'(\d)\*\*', r'\1', text)
+    text = re.sub(r'(\d)\*', r'\1', text)
+
+    # Заміна тире на мінус (після обробки таблиць)
     text = text.replace('\u2012', '-')
     text = text.replace('\u2013', '-')
     text = text.replace('\u2014', '-')
@@ -163,6 +175,7 @@ def preprocess(text):
     text = text.replace('\u2212', '-')
 
     text = re.sub(r'^\s*---+\s*$', '\n\n\u00A0\n\n', text, flags=re.MULTILINE)
+
     # Додаємо порожній рядок перед таблицями
     text = re.sub(r'([^\n|])\n(\|)', r'\1\n\n\2', text)
 
@@ -379,6 +392,7 @@ def converter():
             filename = f.filename
 
         content = preprocess(content)
+        logger.error("PREPROCESSED (first 500): %s", repr(content[:500]))
 
         with tempfile.TemporaryDirectory() as tmp:
             src = os.path.join(tmp, 'input.md')

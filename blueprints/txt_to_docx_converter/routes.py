@@ -156,9 +156,12 @@ def preprocess(text):
     # Нормалізуємо закінчення рядків
     text = text.replace('\r\n', '\n')
     text = text.replace('\r', '\n')
-    
+
     for old, new in REPLACEMENTS:
         text = text.replace(old, new)
+
+    # Прибираємо вкладені \text всередині \text
+    text = re.sub(r'\\text\{([^}]*?)\\cdot\\text\{([^}]*?)\}\}', r'\\text{\1·\2}', text)
 
     # Прибираємо жирний текст всередині таблиць
     text = re.sub(r'(\|[^|\n]*)\*\*([^*|\n]*)\*\*([^|\n]*\|)', r'\1\2\3', text)
@@ -173,6 +176,11 @@ def preprocess(text):
     text = text.replace('\u2014', '-')
     text = text.replace('\u2015', '-')
     text = text.replace('\u2212', '-')
+
+    # Виправляємо вкладені \text{\cdot\text{}}
+    text = text.replace('\\cdot\\text{м}', '·м')
+    text = text.replace('\\cdot\\text{с}', '·с')
+    text = text.replace('\\cdot\\text{кг}', '·кг')
 
     text = re.sub(r'^\s*---+\s*$', '\n\n\u00A0\n\n', text, flags=re.MULTILINE)
 

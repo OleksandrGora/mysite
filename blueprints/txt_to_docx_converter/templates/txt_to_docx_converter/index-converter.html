@@ -411,12 +411,28 @@
       window.location.href = '/';
     }
     
+    // Clear previous messages function
+    function clearPreviousMessages() {
+      const warningsDiv = document.querySelector('.alert-warnings');
+      const successDiv = document.querySelector('.alert-success');
+      if (warningsDiv) warningsDiv.remove();
+      if (successDiv) successDiv.remove();
+    }
+    
     document.addEventListener('DOMContentLoaded', function() {
       const form = document.querySelector('form');
       const googleBtn = document.querySelector('button[value="google"]');
       const downloadBtn = document.querySelector('button[value="download"]');
       const fileInput = document.querySelector('input[type="file"]');
       const textArea = document.querySelector('textarea');
+      
+      // Clear messages on page load if this is a fresh session (no form submission)
+      if (!window.performance.getEntriesByType('navigation')[0].type.includes('back_forward')) {
+        // Check if there's any text in textarea or file selected
+        if (!textArea.value.trim() && !fileInput.files.length) {
+          clearPreviousMessages();
+        }
+      }
       
       function setButtonLoading(button, loading) {
         if (loading) {
@@ -461,8 +477,12 @@
         }
       }
       
+            
       // Handle form submission
       form.addEventListener('submit', function(e) {
+        // Clear previous messages immediately
+        clearPreviousMessages();
+        
         // Small delay to ensure form submission starts
         setTimeout(() => {
           const submitter = document.activeElement;

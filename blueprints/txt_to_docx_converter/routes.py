@@ -92,6 +92,22 @@ def is_token_valid():
             logger.warning("[TOKEN_VALID] Token not valid and cannot refresh")
             raise ReauthorizationNeeded("Token not valid and cannot refresh")
 
+    # Additional validation: test token with actual API call
+    try:
+        drive = build('drive', 'v3', credentials=creds)
+        # Test with a minimal API call to verify token works
+        drive.about().get(fields='user').execute()
+        logger.debug("[TOKEN_VALID] Token validation test passed")
+    except Exception as e:
+        error_str = str(e).lower()
+        if any(keyword in error_str for keyword in ['invalid_grant', 'unauthorized_client', 'token_expired', 'access_denied']):
+            logger.error(f"[TOKEN_VALID] Token validation test failed: {e}")
+            session.pop('token', None)
+            raise ReauthorizationNeeded(f"Token validation failed: {e}")
+        else:
+            logger.warning(f"[TOKEN_VALID] Token validation test failed with non-auth error: {e}")
+            # For non-auth errors, continue but log the issue
+
     return True
 
 ## 4. Google Drive API клієнт

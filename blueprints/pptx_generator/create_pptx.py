@@ -71,20 +71,20 @@ def create_presentation(filename, slides_data, images_dir=None):
     slide_layout = prs.slide_layouts[6]  # Blank layout
     title_slide = prs.slides.add_slide(slide_layout)
     
-    # White background for title slide
-    bg_shape = title_slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        0, 0,
-        prs.slide_width, prs.slide_height
-    )
-    bg_shape.z_order = 0
-    # Remove border
-    bg_shape.line.fill.background()
-    fill = bg_shape.fill
-    fill.solid()
-    fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
-    # Lock shape
-    _lock_shape(bg_shape)
+    # # White background for title slide
+    # bg_shape = title_slide.shapes.add_shape(
+    #     MSO_SHAPE.RECTANGLE,
+    #     0, 0,
+    #     prs.slide_width, prs.slide_height
+    # )
+    # bg_shape.z_order = 0
+    # # Remove border
+    # bg_shape.line.fill.background()
+    # fill = bg_shape.fill
+    # fill.solid()
+    # fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+    # # Lock shape
+    # _lock_shape(bg_shape)
     
     # Get presentation title from first slide
     presentation_title = slides_data[0].get('title', 'Презентація') if slides_data else 'Презентація'
@@ -110,7 +110,7 @@ def create_presentation(filename, slides_data, images_dir=None):
     tema_para.font.size = Pt(30)
     tema_para.font.bold = True
     tema_para.font.color.rgb = selected_title_color
-    tema_para.alignment = 1  # Center
+    tema_para.alignment = 2  # Center
     
     # Дисципліна - below ТЕМА, center, font 27
     disc_box = title_slide.shapes.add_textbox(
@@ -128,7 +128,7 @@ def create_presentation(filename, slides_data, images_dir=None):
     disc_para = disc_frame.paragraphs[0]
     disc_para.font.size = Pt(27)
     disc_para.font.color.rgb = selected_title_color
-    disc_para.alignment = 1  # Center
+    disc_para.alignment = 2  # Center
     
     # Виконав - below, right aligned, font 25
     exec_box = title_slide.shapes.add_textbox(
@@ -146,7 +146,7 @@ def create_presentation(filename, slides_data, images_dir=None):
     exec_para = exec_frame.paragraphs[0]
     exec_para.font.size = Pt(25)
     exec_para.font.color.rgb = selected_title_color
-    exec_para.alignment = 2  # Right
+    exec_para.alignment = 3  # Right
     
     # Перевірив - below, right aligned, font 25
     check_box = title_slide.shapes.add_textbox(
@@ -164,7 +164,7 @@ def create_presentation(filename, slides_data, images_dir=None):
     check_para = check_frame.paragraphs[0]
     check_para.font.size = Pt(25)
     check_para.font.color.rgb = selected_title_color
-    check_para.alignment = 2  # Right
+    check_para.alignment = 3  # Right
     
     # Київ {year} - bottom center, font 20
     city_box = title_slide.shapes.add_textbox(
@@ -182,7 +182,7 @@ def create_presentation(filename, slides_data, images_dir=None):
     city_para = city_frame.paragraphs[0]
     city_para.font.size = Pt(20)
     city_para.font.color.rgb = selected_title_color
-    city_para.alignment = 1  # Center
+    city_para.alignment = 2  # Center
     
     # Choose design type once for the entire presentation (except title slide)
     design_type = random.choice(['rectangle', 'circle', 'sidebar', 'header_bar', 'diagonal_split', 'triangle_accents', 'thin_frame'])
@@ -197,6 +197,76 @@ def create_presentation(filename, slides_data, images_dir=None):
         sidebar_layout = random.choice(sidebar_layout_options)
     elif design_type == 'header_bar':
         header_bar_layout = random.choice(header_bar_layout_options)
+    
+    # Create table of contents slide
+    toc_slide_layout = prs.slide_layouts[6]  # Blank layout
+    toc_slide = prs.slides.add_slide(toc_slide_layout)
+    
+    # # White background for TOC slide
+    # toc_bg_shape = toc_slide.shapes.add_shape(
+    #     MSO_SHAPE.RECTANGLE,
+    #     0, 0,
+    #     prs.slide_width, prs.slide_height
+    # )
+    # toc_bg_shape.z_order = 0
+    # # Remove border
+    # toc_bg_shape.line.fill.background()
+    # toc_fill = toc_bg_shape.fill
+    # toc_fill.solid()
+    # toc_fill.fore_color.rgb = RGBColor(255, 255, 255)  # White
+    # # Lock shape
+    # _lock_shape(toc_bg_shape)
+    
+    # Add "Зміст" title - centered
+    toc_title_box = toc_slide.shapes.add_textbox(
+        Inches(0.5), Inches(0.5),
+        Inches(9), Inches(0.8)
+    )
+    toc_title_frame = toc_title_box.text_frame
+    toc_title_frame.text = "Зміст"
+    toc_title_frame.margin_left = 0
+    toc_title_frame.margin_right = 0
+    toc_title_frame.margin_top = 0
+    toc_title_frame.margin_bottom = 0
+    toc_title_frame.word_wrap = True
+    toc_title_frame.auto_size = 1
+    toc_title_para = toc_title_frame.paragraphs[0]
+    toc_title_para.font.size = Pt(32)
+    toc_title_para.font.bold = True
+    toc_title_para.font.color.rgb = selected_title_color
+    toc_title_para.alignment = 2  # Center
+    
+    # Create table of contents content
+    toc_content = []
+    for i, slide_data in enumerate(slides_data):
+        slide_title = slide_data.get('title', f'Слайд {i+1}')
+        page_number = i + 3  # First content slide is page 3
+        toc_content.append((slide_title, page_number))
+    
+    # Add TOC text field with slide titles and page numbers
+    toc_text_box = toc_slide.shapes.add_textbox(
+        Inches(1), Inches(1.5),
+        Inches(8), Inches(4)
+    )
+    toc_text_frame = toc_text_box.text_frame
+    toc_text_frame.margin_left = 0
+    toc_text_frame.margin_right = 0
+    toc_text_frame.margin_top = 0
+    toc_text_frame.margin_bottom = 0
+    toc_text_frame.word_wrap = True
+    
+    # Add each TOC entry with dot leaders
+    for slide_title, page_number in toc_content:
+        p = toc_text_frame.add_paragraph()
+        p.font.size = Pt(24)
+        p.font.color.rgb = selected_title_color
+        p.alignment = 1  # Left aligned
+        
+        # Create text with dot leaders
+        max_dots = 50
+        dots_needed = max_dots - len(slide_title) - len(str(page_number))
+        dots = '.' * max(0, dots_needed)
+        p.text = f"{slide_title} {dots} {page_number}"
     
     # Content slides
     slide_count = 0
@@ -243,7 +313,7 @@ def create_presentation(filename, slides_data, images_dir=None):
             title_para.font.size = Pt(32)
             title_para.font.bold = True
             title_para.font.color.rgb = selected_title_color
-            title_para.alignment = 1  # Center
+            title_para.alignment = 2  # Center
         
         # Перевіряємо чи є реальне зображення
         has_image = False

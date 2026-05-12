@@ -1,18 +1,25 @@
-from flask import render_template, request, redirect, url_for, session, send_file
+from flask import render_template, request, redirect, url_for, session, send_file, flash
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
+from google.auth.exceptions import GoogleAuthError
 import subprocess
 import tempfile
 import os
 import logging
 import traceback
 import re
+import socket
 
 from . import converter_bp
 
 logger = logging.getLogger(__name__)
+
+# Custom exception for re-authorization
+class ReauthorizationNeeded(Exception):
+    """Raised when token refresh fails and re-authorization is needed."""
+    pass
 
 PANDOC = '/usr/bin/pandoc'
 
@@ -41,21 +48,22 @@ def _make_credentials():
 def is_token_valid():
     """
     Перевіряє токен. Якщо протік — пробує оновити через refresh_token.
-    Повертає True якщо токен валідний, False якщо потрібен повторний логін.
+    Повертає True якщо токен валідний.
+    Викидає ReauthorizationNeeded якщо потрібен повторний логін.
     """
     t = session.get('token')
     if not t:
         logger.warning("[TOKEN_VALID] No token in session")
-        return False
+        raise ReauthorizationNeeded("No token in session")
     
     if not t.get('refresh_token'):
         logger.warning("[TOKEN_VALID] No refresh_token in session token")
-        return False
+        raise ReauthorizationNeeded("No refresh_token in session")
     
     if not t.get('access_token'):
         logger.warning("[TOKEN_VALID] No access_token in session token")
-        return False
-    
+        raise ReauthorizationNeeded("No access_token in session")
+
     # Check if scope includes drive
     scope = t.get('scope', '')
     if isinstance(scope, list):
@@ -63,7 +71,7 @@ def is_token_valid():
     
     if 'drive' not in scope.lower():
         logger.warning(f"[TOKEN_VALID] Token missing Drive scope. Scope: {scope}")
-        return False
+        raise ReauthorizationNeeded(f"Token missing Drive scope")
 
     creds = _make_credentials()
 
@@ -75,12 +83,14 @@ def is_token_valid():
                 session['token']['access_token'] = creds.token
                 session.modified = True
                 logger.info("[TOKEN_VALID] Token refreshed successfully")
-            except Exception as e:
+            except (GoogleAuthError, socket.error, ConnectionError, Exception) as e:
                 logger.error("[TOKEN_VALID] Token refresh failed: %s", e)
-                return False
+                # Clear invalid token from session
+                session.pop('token', None)
+                raise ReauthorizationNeeded(f"Token refresh failed: {e}")
         else:
             logger.warning("[TOKEN_VALID] Token not valid and cannot refresh")
-            return False
+            raise ReauthorizationNeeded("Token not valid and cannot refresh")
 
     return True
 
@@ -89,7 +99,7 @@ def get_drive_service():
     t = session.get('token')
     if not t:
         logger.error("[DRIVE_SERVICE] No token in session!")
-        raise RuntimeError("TOKEN_EXPIRED")
+        raise ReauthorizationNeeded("No token in session")
     
     # Normalize scope to list
     scope = t.get('scope', '')
@@ -120,12 +130,14 @@ def get_drive_service():
                 creds.refresh(GoogleRequest())
                 session['token']['access_token'] = creds.token
                 session.modified = True
-            except Exception as e:
+            except (GoogleAuthError, socket.error, ConnectionError, Exception) as e:
                 logger.error("[DRIVE_SERVICE] Failed to refresh token: %s", e)
-                raise RuntimeError("TOKEN_EXPIRED")
+                session.pop('token', None)
+                raise ReauthorizationNeeded(f"Token refresh failed: {e}")
         else:
             logger.error("[DRIVE_SERVICE] Credentials not valid and cannot refresh")
-            raise RuntimeError("TOKEN_EXPIRED")
+            session.pop('token', None)
+            raise ReauthorizationNeeded("Credentials not valid and cannot refresh")
     
     return build('drive', 'v3', credentials=creds)
 
@@ -147,8 +159,8 @@ def get_or_create_folder(drive, folder_name):
     except Exception as e:
         error_str = str(e)
         if "invalid_grant" in error_str or "unauthorized_client" in error_str or "TOKEN_EXPIRED" in error_str:
-            logger.warning("Token expired in get_or_create_folder, raising TOKEN_EXPIRED")
-            raise RuntimeError("TOKEN_EXPIRED")
+            logger.warning("Token expired in get_or_create_folder, raising ReauthorizationNeeded")
+            raise ReauthorizationNeeded(f"Token expired in Drive API call: {e}")
         raise
 
 ## 1. Очищення тексту, заміна LaTeX-команд
@@ -365,8 +377,12 @@ def converter():
     if 'email' not in session:
         return redirect(url_for('login'))
 
-    if not is_token_valid():
+    try:
+        is_token_valid()
+    except ReauthorizationNeeded as e:
+        logger.warning(f"[CONVERTER] Reauthorization needed: {e}")
         session.clear()
+        # Automatically redirect to OAuth flow
         return redirect(url_for('login'))
 
     if request.method == 'POST':
@@ -457,16 +473,23 @@ def converter():
                 ).execute()
                 logger.info("File uploaded successfully: %s", uploaded.get('webViewLink'))
 
+            except ReauthorizationNeeded as e:
+                logger.warning(f"[CONVERTER] Reauthorization needed during Drive upload: {e}")
+                session.clear()
+                # Automatically redirect to OAuth flow for re-authorization
+                return redirect(url_for('login'))
             except Exception as e:
                 error_msg = str(e)
                 logger.error("Google Drive upload failed: %s", traceback.format_exc())
                 logger.error("Error type: %s", type(e).__name__)
                 logger.error("Error details: %s", error_msg)
 
-                if str(e) == "TOKEN_EXPIRED" or "invalid_grant" in str(e) or "unauthorized_client" in str(e):
+                # Check if it's a token-related error
+                if any(x in error_msg for x in ["TOKEN_EXPIRED", "invalid_grant", "unauthorized_client", "oauth2.googleapis.com"]):
                     logger.warning("Token expired or unauthorized, clearing session and redirecting to login")
                     session.clear()
                     return redirect(url_for('login'))
+                
                 return render_template(
                     'txt_to_docx_converter/index-converter.html',
                     error=f'Файл конвертовано, але помилка завантаження на Drive: {error_msg}',

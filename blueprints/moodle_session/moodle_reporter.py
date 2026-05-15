@@ -512,7 +512,7 @@ def run_report(config: Optional[dict] = None) -> dict:
 
     email = config.get('moodle_email', '')
     password = config.get('moodle_password', '')
-    moodle_url = config.get('moodle_url', 'https://moodle.nubip.edu.ua').rstrip('/')
+    moodle_url = config.get('moodle_url', 'https://elearn.nubip.edu.ua').rstrip('/')
     bot_token = config.get('telegram_bot_token', '')
     chat_ids_raw = config.get('telegram_chat_ids', '')
     # Можна зберегти токен напряму (обхід Playwright)

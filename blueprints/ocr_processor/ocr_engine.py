@@ -2,6 +2,7 @@
 OCR Engine for processing printed and handwritten text
 """
 import os
+import io
 import tempfile
 import shutil
 from pathlib import Path
@@ -11,6 +12,13 @@ import pytesseract
 
 # Set tesseract path explicitly for systemd/gunicorn environment
 pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    logger.warning("PyMuPDF not available, PDF processing will fail")
 
 import easyocr
 import cv2
@@ -268,24 +276,123 @@ class OCREngine:
             logger.error(f"[OCR_ENGINE] Handwritten extraction failed: {e}", exc_info=True)
             return ""
     
-    def extract_all_text(self, image_path, include_handwritten=True, confidence_threshold=0.3):
+    def extract_printed_text_from_numpy(self, gray_image, language='ukr'):
         """
-        Extract both printed and handwritten text
+        Extract printed text from a numpy grayscale image directly (no file path).
+        Uses multiple Tesseract configurations and picks the best result.
 
         Args:
-            image_path: path to image file
+            gray_image: grayscale numpy array
+            language: language code for OCR ('ukr')
+
+        Returns:
+            extracted text as string
+        """
+        try:
+            configs = [
+                r'--oem 3 --psm 3 -l ' + language,
+                r'--oem 3 --psm 6 -l ' + language,
+                r'--oem 1 --psm 3 -l ' + language,
+                r'--oem 3 --psm 11 -l ' + language,
+            ]
+
+            best_text = ""
+            best_length = 0
+
+            for i, config in enumerate(configs):
+                try:
+                    if i == 0:
+                        text = pytesseract.image_to_string(gray_image, config=config)
+                    else:
+                        processed = self.light_preprocess(gray_image)
+                        text = pytesseract.image_to_string(processed, config=config)
+
+                    meaningful_chars = len([c for c in text if c.isalnum() or c.isspace()])
+
+                    if meaningful_chars > best_length:
+                        best_text = text
+                        best_length = meaningful_chars
+
+                except Exception as e:
+                    logger.warning(f"[OCR_ENGINE] Config {i+1} failed: {e}")
+                    continue
+
+            return best_text.strip()
+
+        except Exception as e:
+            logger.error(f"[OCR_ENGINE] Printed text extraction from numpy failed: {e}")
+            return ""
+
+    def extract_handwritten_from_numpy(self, gray_image, logs_list, confidence_threshold=0.3):
+        """
+        Extract handwritten text from a numpy grayscale image using EasyOCR.
+
+        Args:
+            gray_image: grayscale numpy array
+            logs_list: list to append logs to
+            confidence_threshold: minimum confidence threshold (0.0-1.0)
+
+        Returns:
+            extracted text as string
+        """
+        try:
+            if self.easyocr_reader is None:
+                logs_list.append("[OCR_ENGINE] ERROR: EasyOCR not initialized")
+                return ""
+
+            logs_list.append("[OCR_ENGINE] Starting handwritten extraction from numpy image")
+
+            results = self.easyocr_reader.readtext(gray_image)
+            logs_list.append(f"[OCR_ENGINE] EasyOCR found {len(results)} text blocks")
+
+            for i, (bbox, text, confidence) in enumerate(results):
+                logs_list.append(f"[OCR_ENGINE] Block {i+1}: '{text}' (conf: {confidence:.3f})")
+
+            text_parts = []
+            confidences = []
+            for (bbox, text, confidence) in results:
+                confidences.append(confidence)
+                if confidence > confidence_threshold:
+                    text_parts.append(text)
+                else:
+                    logs_list.append(f"[OCR_ENGINE] SKIPPED (conf {confidence:.3f} < {confidence_threshold}): '{text}'")
+
+            extracted_text = '\n'.join(text_parts)
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0
+            logs_list.append(f"[OCR_ENGINE] Kept {len(text_parts)}/{len(results)} blocks, avg_conf={avg_conf:.3f}, threshold={confidence_threshold}")
+
+            return extracted_text
+
+        except Exception as e:
+            logs_list.append(f"[OCR_ENGINE] ERROR: {str(e)}")
+            logger.error(f"[OCR_ENGINE] Handwritten extraction from numpy failed: {e}", exc_info=True)
+            return ""
+
+    def extract_all_text(self, image_path, include_handwritten=True, confidence_threshold=0.3):
+        """
+        Extract both printed and handwritten text.
+        Automatically detects PDF files and processes them page by page.
+
+        Args:
+            image_path: path to image or PDF file
             include_handwritten: whether to include handwritten text recognition
             confidence_threshold: minimum confidence for handwritten text (0.0-1.0)
 
         Returns:
-            dict with printed and handwritten text and processing logs
+            dict with printed and handwritten text, processing logs, and page count
         """
         processing_logs = []
         try:
             processing_logs.append(f"[OCR_ENGINE] Starting extraction for {image_path}")
             processing_logs.append(f"[OCR_ENGINE] Handwritten enabled: {include_handwritten}, threshold: {confidence_threshold}")
 
-            # Try multiple languages for printed text - prioritize Ukrainian
+            # Detect PDF by extension
+            ext = os.path.splitext(image_path)[1].lower()
+            if ext == '.pdf':
+                processing_logs.append("[OCR_ENGINE] PDF detected, switching to PDF processing mode")
+                return self.extract_from_pdf(image_path, include_handwritten, confidence_threshold)
+
+            # Existing image processing logic
             languages = ['ukr']
             printed_text = ""
             best_lang = ""
@@ -303,7 +410,8 @@ class OCREngine:
             result = {
                 'printed_text': printed_text,
                 'handwritten_text': "",
-                'logs': processing_logs
+                'logs': processing_logs,
+                'page_count': 1
             }
 
             if include_handwritten:
@@ -318,8 +426,116 @@ class OCREngine:
         except Exception as e:
             processing_logs.append(f"[OCR_ENGINE] ERROR: {str(e)}")
             logger.error(f"[OCR_ENGINE] Text extraction failed: {e}", exc_info=True)
-            return {'printed_text': "", 'handwritten_text': "", 'logs': processing_logs}
-    
+            return {'printed_text': "", 'handwritten_text': "", 'logs': processing_logs, 'page_count': 0}
+
+    def pdf_page_to_numpy(self, doc, page_num, dpi=300):
+        """
+        Convert a PDF page to a grayscale numpy array.
+
+        Args:
+            doc: PyMuPDF document object
+            page_num: page number (0-indexed)
+            dpi: rendering resolution
+
+        Returns:
+            grayscale numpy array
+        """
+        page = doc[page_num]
+        mat = fitz.Matrix(dpi / 72, dpi / 72)
+        pix = page.get_pixmap(matrix=mat)
+        img_data = pix.tobytes("png")
+        pil_img = Image.open(io.BytesIO(img_data))
+        np_img = np.array(pil_img.convert('RGB'))
+        gray = cv2.cvtColor(np_img, cv2.COLOR_RGB2GRAY)
+        return gray
+
+    def extract_from_pdf(self, pdf_path, include_handwritten=True, confidence_threshold=0.3):
+        """
+        Extract text from a scanned PDF by processing each page as an image.
+
+        Args:
+            pdf_path: path to PDF file
+            include_handwritten: whether to include handwritten text recognition
+            confidence_threshold: minimum confidence for handwritten text (0.0-1.0)
+
+        Returns:
+            dict with printed_text, handwritten_text, logs, page_count
+        """
+        processing_logs = []
+        processing_logs.append(f"[OCR_ENGINE] Opening PDF: {pdf_path}")
+
+        if not PYMUPDF_AVAILABLE:
+            processing_logs.append("[OCR_ENGINE] ERROR: PyMuPDF not available")
+            logger.error("[OCR_ENGINE] PyMuPDF not available, cannot process PDF")
+            return {'printed_text': "", 'handwritten_text': "", 'logs': processing_logs, 'page_count': 0}
+
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+        processing_logs.append(f"[OCR_ENGINE] PDF has {total_pages} pages")
+
+        page_printed_texts = []
+        page_handwritten_texts = []
+        languages = ['ukr']
+
+        for page_num in range(total_pages):
+            try:
+                processing_logs.append(f"[OCR_ENGINE] Processing page {page_num + 1}/{total_pages}")
+                logger.info(f"[OCR_ENGINE] PDF page {page_num + 1}/{total_pages}")
+
+                gray = self.pdf_page_to_numpy(doc, page_num)
+
+                printed_text = ""
+                best_lang = ""
+                for lang in languages:
+                    text = self.extract_printed_text_from_numpy(gray, lang)
+                    processing_logs.append(f"[OCR_ENGINE] Page {page_num + 1} {lang}: {len(text)} chars")
+                    if text and len(text) > len(printed_text):
+                        printed_text = text
+                        best_lang = lang
+
+                page_printed_texts.append(printed_text)
+
+                if include_handwritten:
+                    hw_logs = []
+                    handwritten_text = self.extract_handwritten_from_numpy(gray, hw_logs, confidence_threshold)
+                    processing_logs.extend(hw_logs)
+                    page_handwritten_texts.append(handwritten_text)
+
+            except Exception as e:
+                processing_logs.append(f"[OCR_ENGINE] ERROR on page {page_num + 1}: {e}")
+                logger.error(f"[OCR_ENGINE] Failed to process PDF page {page_num + 1}: {e}")
+                page_printed_texts.append("")
+                page_handwritten_texts.append("")
+
+        doc.close()
+
+        printed_parts = []
+        for i, text in enumerate(page_printed_texts):
+            if total_pages > 1:
+                printed_parts.append(f"--- Сторінка {i + 1} з {total_pages} ---\n{text}")
+            else:
+                printed_parts.append(text)
+        combined_printed = '\n\n'.join(printed_parts)
+
+        handwritten_parts = []
+        for i, text in enumerate(page_handwritten_texts):
+            if text:
+                if total_pages > 1:
+                    handwritten_parts.append(f"--- Сторінка {i + 1} з {total_pages} ---\n{text}")
+                else:
+                    handwritten_parts.append(text)
+        combined_handwritten = '\n\n'.join(handwritten_parts)
+
+        processing_logs.append(f"[OCR_ENGINE] PDF FINAL: {total_pages} pages, printed={len(combined_printed)} chars, handwritten={len(combined_handwritten)} chars")
+        logger.info(f"[OCR_ENGINE] PDF extraction complete: {total_pages} pages")
+
+        return {
+            'printed_text': combined_printed,
+            'handwritten_text': combined_handwritten,
+            'logs': processing_logs,
+            'page_count': total_pages
+        }
+
     def save_text_to_file(self, text, output_path, file_format='txt'):
         """
         Save extracted text to file
@@ -333,11 +549,9 @@ class OCREngine:
             success status
         """
         try:
-            # Ensure directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
             if file_format.lower() == 'md':
-                # Format as Markdown
                 content = f"# Extracted Text\n\n{text}"
             else:
                 content = text

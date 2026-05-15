@@ -56,11 +56,11 @@ def upload_image():
             return jsonify({'error': 'No file selected'}), 400
 
         # Check file extension
-        allowed_extensions = {'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif'}
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif', 'pdf'}
         ext = file.filename.lower().split('.')[-1]
         if ext not in allowed_extensions:
             logger.warning(f"[OCR_API_UPLOAD] Invalid extension: {ext}")
-            return jsonify({'error': 'File must be an image (png, jpg, jpeg, tiff, bmp, gif)'}), 400
+            return jsonify({'error': 'File must be an image or PDF (png, jpg, jpeg, tiff, bmp, gif, pdf)'}), 400
         
         # Get options
         include_handwritten = request.form.get('include_handwritten', 'true').lower() in ['true', '1', 'yes']
@@ -120,6 +120,7 @@ def upload_image():
             'handwritten_text_length': len(result['handwritten_text']),
             'total_text_length': len(combined_text),
             'output_path': permanent_path,
+            'page_count': result.get('page_count', 1),
             'printed_text': result['printed_text'][:500] + '...' if len(result['printed_text']) > 500 else result['printed_text'],
             'handwritten_text': result['handwritten_text'][:500] + '...' if len(result['handwritten_text']) > 500 else result['handwritten_text']
         })
@@ -150,9 +151,9 @@ def extract_text_only():
             return jsonify({'error': 'No file selected'}), 400
         
         # Check file extension
-        allowed_extensions = {'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif'}
+        allowed_extensions = {'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif', 'pdf'}
         if not file.filename.lower().split('.')[-1] in allowed_extensions:
-            return jsonify({'error': 'File must be an image'}), 400
+            return jsonify({'error': 'File must be an image or PDF'}), 400
         
         # Get options
         include_handwritten = request.form.get('include_handwritten', 'true').lower() in ['true', '1', 'yes']
@@ -177,7 +178,8 @@ def extract_text_only():
             'printed_text': result['printed_text'],
             'handwritten_text': result['handwritten_text'],
             'printed_text_length': len(result['printed_text']),
-            'handwritten_text_length': len(result['handwritten_text'])
+            'handwritten_text_length': len(result['handwritten_text']),
+            'page_count': result.get('page_count', 1)
         })
         
     except Exception as e:

@@ -17,7 +17,7 @@ _lock = threading.Lock()
 DEFAULT_CONFIG = {
     "moodle_email": "",
     "moodle_password": "",
-    "moodle_url": "https://moodle.nubip.edu.ua",
+    "moodle_url": "https://elearn.nubip.edu.ua",
     "moodle_token": "",  # Збережений API токен (обхід Playwright)
     "telegram_bot_token": "",
     "telegram_chat_ids": "",

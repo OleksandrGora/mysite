@@ -1,50 +1,23 @@
 {
-  "gonchar9.doc": {
-    "filename": "gonchar9.doc",
+  "КУРСОВИИ_ПРОЄКТ_ЗТХ-23-1-_iti-ch_Ясиняцька_(2).docx": {
+    "filename": "КУРСОВИИ_ПРОЄКТ_ЗТХ-23-1-_iti-ch_Ясиняцька_(2).docx",
     "status": "ready",
     "progress": 100,
-    "message": "Готово: 79 чанків, 121613 символів",
-    "updated_at": "2026-05-08T17:24:34.711280",
-    "char_count": 121613,
-    "chunks": 79,
-    "collection": "rag_2b9e9c5824bc8988",
-    "cached": false,
-    "started_at": "2026-05-08T17:24:34.711302"
+    "message": "Готово (з кешу)",
+    "updated_at": "2026-05-14T14:31:52.652864"
   },
-  "РЕДФОРД.pdf": {
-    "filename": "РЕДФОРД.pdf",
+  "Вступ_Дендюк_Олег_Іванович.docx": {
+    "filename": "Вступ_Дендюк_Олег_Іванович.docx",
     "status": "ready",
     "progress": 100,
-    "message": "Готово: 1 чанків, 1619 символів",
-    "updated_at": "2026-05-08T17:24:37.148254",
-    "char_count": 1619,
-    "chunks": 1,
-    "collection": "rag_5dcf0e48decfc05c",
-    "cached": false,
-    "started_at": "2026-05-08T17:24:37.148270"
+    "message": "Готово (з кешу)",
+    "updated_at": "2026-05-14T14:31:52.667678"
   },
-  "Лабораторна робота 8.pdf": {
-    "filename": "Лабораторна робота 8.pdf",
+  "Інструкція_Овочерізка_Robot_Coupe_CL_50.pdf": {
+    "filename": "Інструкція_Овочерізка_Robot_Coupe_CL_50.pdf",
     "status": "ready",
     "progress": 100,
-    "message": "Готово: 11 чанків, 12377 символів",
-    "updated_at": "2026-05-08T17:24:58.392207",
-    "char_count": 12377,
-    "chunks": 11,
-    "collection": "rag_2a47467eab5bb0d9",
-    "cached": false,
-    "started_at": "2026-05-08T17:24:58.392224"
-  },
-  "Лабораторна_робота_7.pdf": {
-    "filename": "Лабораторна_робота_7.pdf",
-    "status": "ready",
-    "progress": 100,
-    "message": "Готово: 1 чанків, 3975 символів",
-    "updated_at": "2026-05-08T17:25:01.503973",
-    "char_count": 3975,
-    "chunks": 1,
-    "collection": "rag_8ef347fe74290771",
-    "cached": false,
-    "started_at": "2026-05-08T17:25:01.503993"
+    "message": "Готово (з кешу)",
+    "updated_at": "2026-05-14T14:31:52.681968"
   }
 }

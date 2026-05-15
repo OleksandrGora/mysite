@@ -72,8 +72,8 @@
                             <div class="upload-area" id="uploadArea">
                                 <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
                                 <h4>Перетягніть зображення сюди або натисніть для вибору</h4>
-                                <p class="text-muted">Підтримувані формати: PNG, JPG, JPEG, TIFF, BMP, GIF</p>
-                                <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                                <p class="text-muted">Підтримувані формати: PNG, JPG, JPEG, TIFF, BMP, GIF, PDF</p>
+                                <input type="file" id="fileInput" accept="image/*,.pdf" style="display: none;">
                             </div>
                             
                             <!-- OCR Settings -->
@@ -209,7 +209,7 @@
             uploadArea.classList.remove('dragover');
             
             const file = e.dataTransfer.files[0];
-            if (file && file.type.startsWith('image/')) {
+            if (file && (file.type.startsWith('image/') || file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
                 handleFileSelect(file);
             }
         });
@@ -219,10 +219,11 @@
             processBtn.disabled = false;
             
             // Update UI
+            const isPdf = file.type === 'application/pdf' || file.name.endsWith('.pdf');
             uploadArea.innerHTML = `
                 <i class="fas fa-file-image fa-3x text-success mb-3"></i>
                 <h4>Обрано: ${file.name}</h4>
-                <p class="text-muted">Розмір: ${(file.size / 1024).toFixed(2)} KB</p>
+                <p class="text-muted">Розмір: ${(file.size / 1024).toFixed(2)} KB${isPdf ? ' | PDF' : ''}</p>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearFile()">
                     <i class="fas fa-times me-1"></i>Очистити
                 </button>
@@ -236,8 +237,8 @@
             
             uploadArea.innerHTML = `
                 <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
-                <h4>Перетягніть зображення сюди або натисніть для вибору</h4>
-                <p class="text-muted">Підтримувані формати: PNG, JPG, JPEG, TIFF, BMP, GIF</p>
+                <h4>Перетягніть зображення або PDF сюди чи натисніть для вибору</h4>
+                <p class="text-muted">Підтримувані формати: PNG, JPG, JPEG, TIFF, BMP, GIF, PDF</p>
             `;
         }
 
@@ -290,12 +291,14 @@
         }
 
         function showResults(result) {
+            const pageInfo = result.page_count > 1 ? `<p><strong>Оброблено сторінок:</strong> ${result.page_count}</p>` : '';
             document.getElementById('resultInfo').innerHTML = `
                 <p><strong>Оригінальний файл:</strong> ${result.original_filename}</p>
                 <p><strong>Вихідний файл:</strong> ${result.filename}</p>
                 <p><strong>Друкований текст:</strong> ${result.printed_text_length} символів</p>
                 <p><strong>Рукописний текст:</strong> ${result.handwritten_text_length} символів</p>
                 <p><strong>Всього тексту:</strong> ${result.total_text_length} символів</p>
+                ${pageInfo}
             `;
 
             document.getElementById('printedTextPreview').textContent = result.printed_text || '(не розпізнано)';

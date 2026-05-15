@@ -4,8 +4,9 @@ from blueprints.doc_generator import doc_generator_bp
 from blueprints.pptx_generator import pptx_generator_bp
 from blueprints.ocr_processor import ocr_processor_bp
 from blueprints.moodle_session import moodle_session_bp
+from blueprints.moodle_session.moodle_reporter import get_moodle_token
 from blueprints.doc_generator.celery_worker import celery_app
-from flask import Flask, render_template, redirect, url_for, session, jsonify
+from flask import Flask, render_template, redirect, url_for, session, jsonify, request
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import os
@@ -47,6 +48,21 @@ app.register_blueprint(pptx_generator_bp)
 app.register_blueprint(ocr_processor_bp)
 app.register_blueprint(moodle_session_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'temporary_secret_key_for_debug')
+
+
+# =============================================================
+# CORS для публічних endpoint'ів
+# =============================================================
+
+@app.after_request
+def add_cors_headers(response):
+    """Додає CORS заголовки для публічних endpoint'ів."""
+    if request.path == '/moodle/get-token':
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
 
 logger.info("=== APP STARTUP ===")
 logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor, moodle_session")
@@ -153,6 +169,43 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+
+# =============================================================
+# Публічний endpoint для отримання Moodle API token
+# =============================================================
+
+@app.route('/moodle/get-token', methods=['POST', 'OPTIONS'])
+def moodle_get_token():
+    """
+    Публічний endpoint для отримання Moodle API token.
+    Не потребує @login_required — автентифікація через email+password.
+    
+    Request:  {"email": "...", "password": "...", "moodle_url": "..."}
+    Response: {"wstoken": "..."} або {"error": "..."}
+    """
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Request body is required'}), 400
+
+    email = data.get('email', '').strip()
+    password = data.get('password', '')
+    moodle_url = data.get('moodle_url', 'https://elearn.nubip.edu.ua').rstrip('/')
+
+    if not email or not password:
+        return jsonify({'error': 'email and password are required'}), 400
+
+    logger.info(f"[MOODLE_GET_TOKEN] Отримуємо токен для {email}")
+
+    token = get_moodle_token(email, password, moodle_url)
+    if not token:
+        logger.warning(f"[MOODLE_GET_TOKEN] Не вдалося отримати токен для {email}")
+        return jsonify({'error': 'Failed to obtain Moodle token. Check credentials.'}), 401
+
+    logger.info(f"[MOODLE_GET_TOKEN] Токен успішно отримано для {email}")
+    return jsonify({'wstoken': token})
 
 
 if __name__ == '__main__':

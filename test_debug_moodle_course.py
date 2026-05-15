@@ -22,7 +22,7 @@ def debug_course(course_name_substring="Автоматизація"):
     config = load_config()
     email = config.get('moodle_email', '')
     password = config.get('moodle_password', '')
-    moodle_url = config.get('moodle_url', 'https://moodle.nubip.edu.ua').rstrip('/')
+    moodle_url = config.get('moodle_url', 'https://elearn.nubip.edu.ua').rstrip('/')
     saved_token = config.get('moodle_token', '')
 
     if saved_token:

@@ -509,21 +509,9 @@ class OCREngine:
 
         doc.close()
 
-        printed_parts = []
-        for i, text in enumerate(page_printed_texts):
-            if total_pages > 1:
-                printed_parts.append(f"--- Сторінка {i + 1} з {total_pages} ---\n{text}")
-            else:
-                printed_parts.append(text)
-        combined_printed = '\n\n'.join(printed_parts)
+        combined_printed = '\n\n'.join(page_printed_texts)
 
-        handwritten_parts = []
-        for i, text in enumerate(page_handwritten_texts):
-            if text:
-                if total_pages > 1:
-                    handwritten_parts.append(f"--- Сторінка {i + 1} з {total_pages} ---\n{text}")
-                else:
-                    handwritten_parts.append(text)
+        handwritten_parts = [t for t in page_handwritten_texts if t]
         combined_handwritten = '\n\n'.join(handwritten_parts)
 
         processing_logs.append(f"[OCR_ENGINE] PDF FINAL: {total_pages} pages, printed={len(combined_printed)} chars, handwritten={len(combined_handwritten)} chars")

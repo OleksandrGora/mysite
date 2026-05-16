@@ -35,8 +35,9 @@ from .config import (
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
-    save_analysis_result, load_analysis_result, save_final_document, delete_task,
-    handle_file_upload, get_available_files, get_unique_filename,
+    update_task_progress, save_analysis_result, load_analysis_result,
+    save_final_document, delete_task,
+    handle_file_upload, get_available_files, get_unique_filename, register_celery_task,
     TASKS_DATA_DIR, TEMPLATES_DIR, SOURCES_DIR
 )
 
@@ -273,6 +274,7 @@ def run_analysis(task_id):
     
     # Start Celery task
     result = analyze_document_task.delay(task_id, folder_path, analysis_prompt)
+    register_celery_task(folder_path, result.id)
     
     return jsonify({
         'message': 'Analysis started',
@@ -363,6 +365,7 @@ def generate_document(task_id):
         task_id, folder_path, generation_prompt, source_files,
         use_rag=use_rag, chunk_params=chunk_params
     )
+    register_celery_task(folder_path, result.id)
     
     return jsonify({
         'message': 'Document generation started',
@@ -576,6 +579,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     
     try:
         update_task_status(folder_path, 'analyzing')
+        update_task_progress(folder_path, 'Завантаження інформації про завдання...', 5)
         
         # Load task info
         logger.info(f"[ANALYZE] Loading task info from {folder_path}")
@@ -584,19 +588,29 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         template_file = task_info.get('template_file')
         logger.info(f"[ANALYZE] Template file: {template_file}")
+        logger.info(f"[ANALYZE] TEMPLATES_DIR value: {TEMPLATES_DIR}")
         
         template_path = os.path.join(TEMPLATES_DIR, template_file)
         logger.info(f"[ANALYZE] Full template path: {template_path}")
+        logger.info(f"[ANALYZE] Template path exists: {os.path.exists(template_path)}")
         
         if not os.path.exists(template_path):
             raise FileNotFoundError(f"Template not found: {template_file}")
+        
+        try:
+            file_size = os.path.getsize(template_path)
+            logger.info(f"[ANALYZE] Template file size: {file_size} bytes")
+        except Exception as e:
+            logger.warning(f"[ANALYZE] Could not get file size: {e}")
+        
+        update_task_progress(folder_path, 'Парсинг шаблону...', 15)
         
         # Parse template for text extraction
         logger.info(f"[ANALYZE] Parsing template...")
         from .parsers.template_parser import parse_template
         template_data = parse_template(template_path)
         logger.info(f"[ANALYZE] Template data type: {type(template_data)}")
-        logger.info(f"[ANALYZE] Template data: {str(template_data)[:200]}")
+        logger.info(f"[ANALYZE] Template data (full): {json.dumps(template_data, ensure_ascii=False, default=str)[:500]}")
         
         # Check if template_data is a dict
         if not isinstance(template_data, dict):
@@ -604,14 +618,29 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
             raise TypeError(f"Expected dict from parse_template, got {type(template_data)}")
         
         logger.info(f"[ANALYZE] Template parsed, keys: {list(template_data.keys())}")
+        has_text_key = 'text' in template_data
+        logger.info(f"[ANALYZE] Has 'text' key in template_data: {has_text_key}")
         
         # Get text content for LLM
         text_content = template_data.get('text', '')
-        logger.info(f"[ANALYZE] Text content length: {len(text_content)}")
+        text_content_len = len(text_content)
+        logger.info(f"[ANALYZE] Text content length: {text_content_len}")
+        
+        if text_content:
+            logger.info(f"[ANALYZE] Text content preview: {text_content[:300]}")
+        else:
+            logger.warning(f"[ANALYZE] Text content is EMPTY (length={text_content_len})")
+            logger.warning(f"[ANALYZE] Template file extension: {os.path.splitext(template_path)[1].lower()}")
+            logger.warning(f"[ANALYZE] Template data keys: {list(template_data.keys())}")
+            # Log all values in template_data to see what was parsed
+            for tk, tv in template_data.items():
+                tv_str = str(tv)
+                logger.warning(f"[ANALYZE]  template_data['{tk}']: {tv_str[:200]}")
         
         if not text_content:
-            # For PDF, extract text differently
-            if template_path.lower().endswith('.pdf'):
+            update_task_progress(folder_path, 'Витяг тексту з файлу шаблону...', 20)
+            ext = os.path.splitext(template_path)[1].lower()
+            if ext == '.pdf':
                 logger.info(f"[ANALYZE] Extracting text from PDF...")
                 import fitz
                 doc = fitz.open(template_path)
@@ -620,6 +649,25 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                     text_content += page.get_text()
                 doc.close()
                 logger.info(f"[ANALYZE] PDF text extracted, length: {len(text_content)}")
+            elif ext == '.docx':
+                logger.warning(f"[ANALYZE] parse_template returned empty text for DOCX, trying direct extraction...")
+                try:
+                    from docx import Document
+                    doc = Document(template_path)
+                    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+                    for table in doc.tables:
+                        for row in table.rows:
+                            row_text = [c.text.strip() for c in row.cells if c.text.strip()]
+                            if row_text:
+                                parts.append(' | '.join(row_text))
+                    text_content = '\n\n'.join(parts)
+                    logger.info(f"[ANALYZE] Direct DOCX extraction: {len(text_content)} chars, {len(parts)} parts")
+                except Exception as docx_err:
+                    logger.error(f"[ANALYZE] Direct DOCX extraction failed: {docx_err}")
+            else:
+                logger.warning(f"[ANALYZE] No fallback extraction for extension: {ext}")
+        
+        update_task_progress(folder_path, 'Підготовка запиту до LLM...', 30)
         
         # Call LLM for analysis
         logger.info(f"[ANALYZE] Initializing LLM client...")
@@ -633,6 +681,8 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         prompt = ANALYSIS_PROMPT.format(text_content=text_content[:500000])
         logger.info(f"[ANALYZE] Prompt prepared, length: {len(prompt)}")
+        
+        update_task_progress(folder_path, f'Виклик {selected_model} для аналізу...', 50)
         
         if provider == 'gemini':
             if not GEMINI_API_KEY:
@@ -656,8 +706,17 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
             logger.info(f"[ANALYZE] Calling OpenAI model: {selected_model}...")
             openai_kwargs = get_openai_completion_kwargs(
                 model_name=selected_model,
-                max_tokens=4000,
+                max_tokens=16384,
                 temperature=TEMPERATURE
+            )
+            logger.info(f"[ANALYZE] Calling OpenAI model: {selected_model}...")
+            response = client.chat.completions.create(
+                model=selected_model,
+                messages=[
+                    {"role": "system", "content": "Ти — експерт з аналізу структури документів. Відповідай українською мовою."},
+                    {"role": "user", "content": prompt}
+                ],
+                **openai_kwargs
             )
             response = client.chat.completions.create(
                 model=selected_model,
@@ -690,8 +749,17 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
             logger.info(f"[ANALYZE] Calling DeepSeek model: {selected_model}...")
             deepseek_kwargs = get_openai_completion_kwargs(
                 model_name=selected_model,
-                max_tokens=4000,
+                max_tokens=16384,
                 temperature=TEMPERATURE
+            )
+            logger.info(f"[ANALYZE] Calling DeepSeek model: {selected_model}...")
+            response = client.chat.completions.create(
+                model=selected_model,
+                messages=[
+                    {"role": "system", "content": "Ти — експерт з аналізу структури документів. Відповідай українською мовою."},
+                    {"role": "user", "content": prompt}
+                ],
+                **deepseek_kwargs
             )
             response = client.chat.completions.create(
                 model=selected_model,
@@ -724,14 +792,18 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                 f"Будь ласка, спробуйте іншу модель або повторіть аналіз."
             )
         
+        update_task_progress(folder_path, 'Збереження відповіді LLM...', 80)
+        
         # Save AI response for debugging
         from .reasoning.generator import save_ai_response
         save_ai_response(task_id, "analysis", prompt, analysis_text, folder_path, selected_model)
         
         # Save analysis
         logger.info(f"[ANALYZE] Saving analysis result...")
+        update_task_progress(folder_path, 'Збереження результату аналізу...', 90)
         append_debug_log(f"[CELERY] Збереження результату аналізу завдання {task_id}")
         save_analysis_result(folder_path, analysis_text)
+        update_task_progress(folder_path, 'Аналіз завершено', 100)
         update_task_status(folder_path, 'idle')
         
         logger.info(f"[ANALYZE] Completed for task {task_id}")
@@ -742,6 +814,11 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         import traceback
         logger.error(f"[ANALYZE] Failed for task {task_id}: {e}")
         logger.error(f"[ANALYZE] Traceback: {traceback.format_exc()}")
+        local_vars = locals()
+        ctx_template = local_vars.get('template_path', 'N/A')
+        ctx_text = local_vars.get('text_content', 'N/A')
+        ctx_text_len = len(ctx_text) if isinstance(ctx_text, str) else 'N/A'
+        logger.error(f"[ANALYZE] Context: template_path={ctx_template}, text_content_len={ctx_text_len}")
         
         error_msg = str(e)
         if '503 UNAVAILABLE' in error_msg or 'This model is currently experiencing high demand' in error_msg:
@@ -773,11 +850,11 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
                                  use_rag=False, chunk_params=None):
     """Celery task for final document generation."""
     from loguru import logger
-    from ..reasoning.generator import call_llm, generate_document_full
-    from ..task_manager import load_analysis_result, save_final_document, update_task_status, SOURCES_DIR
-    from ..reasoning.markdown_to_docx import convert_markdown_to_docx
-    from ..parsers.source_parser import parse_sources_with_metadata
-    from ..rag.pipeline import generate_document_rag
+    from .reasoning.generator import call_llm, generate_document_full
+    from .task_manager import load_analysis_result, save_final_document, update_task_status, SOURCES_DIR
+    from .reasoning.markdown_to_docx import convert_markdown_to_docx
+    from .parsers.source_parser import parse_sources_with_metadata
+    from .rag.pipeline import generate_document_rag
     import traceback
     import os
 
@@ -791,6 +868,7 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
 
     try:
         update_task_status(folder_path, 'generating')
+        update_task_progress(folder_path, 'Завантаження аналізу...', 5)
 
         # 1. Load analysis text
         analysis_text = load_analysis_result(folder_path)
@@ -800,6 +878,7 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         append_debug_log(f"[{task_id}] Аналіз завантажено: {len(analysis_text)} символів")
 
         # 2. Load source files
+        update_task_progress(folder_path, 'Парсинг файлів джерел...', 12)
         source_paths = [os.path.join(SOURCES_DIR, f) for f in source_files if f]
         sources_data = {}
         if source_paths:
@@ -815,6 +894,11 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         if use_rag:
             logger.info(f"[{task_id}] Using RAG mode for generation")
             append_debug_log(f"[{task_id}] Режим RAG: генерація з контекстом")
+            update_task_progress(folder_path, 'RAG: Підготовка контексту...', 20)
+
+            # Create progress callback for RAG pipeline
+            def rag_progress(message, pct):
+                update_task_progress(folder_path, f'RAG: {message}', 20 + int(pct * 0.55))
 
             # Pipeline returns the prompt (context + structure)
             rag_prompt = generate_document_rag(
@@ -824,8 +908,11 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
                 user_prompt=generation_prompt or None,
                 task_folder=folder_path,
                 selected_model=selected_model,
-                chunk_params=chunk_params
+                chunk_params=chunk_params,
+                progress_callback=rag_progress
             )
+
+            update_task_progress(folder_path, f'Виклик {selected_model} для генерації...', 75)
 
             # Call LLM with the RAG-built prompt
             markdown_text = call_llm(
@@ -837,12 +924,14 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
             )
 
             # Деанонімізуємо відповідь LLM (промпт був анонімізований в pipeline)
-            from ..rag.anonymizer import get_anonymizer
+            update_task_progress(folder_path, 'Деанонімізація відповіді...', 82)
+            from .rag.anonymizer import get_anonymizer
             anonymizer = get_anonymizer()
             markdown_text = anonymizer.deanonymize(markdown_text)
         else:
             logger.info(f"[{task_id}] Using FULL mode (one-pass generation)")
             append_debug_log(f"[{task_id}] Режим FULL: одноетапна генерація")
+            update_task_progress(folder_path, f'Генерація через {selected_model}...', 25)
 
             markdown_text = generate_document_full(
                 analysis_text=analysis_text,
@@ -857,13 +946,16 @@ def generate_final_document_task(self, task_id, folder_path, generation_prompt, 
         append_debug_log(f"[{task_id}] Згенеровано: {len(markdown_text)} символів")
 
         # 4. Convert markdown to DOCX
+        update_task_progress(folder_path, 'Конвертація в DOCX...', 88)
         temp_docx_path = os.path.join(folder_path, f"temp_{task_id}.docx")
         convert_markdown_to_docx(markdown_text, temp_docx_path)
         logger.info(f"[{task_id}] DOCX created: {temp_docx_path}")
         append_debug_log(f"[{task_id}] DOCX створено")
 
         # 5. Save final document to task folder
+        update_task_progress(folder_path, 'Збереження результату...', 95)
         save_final_document(folder_path, temp_docx_path)
+        update_task_progress(folder_path, 'Готово', 100)
         update_task_status(folder_path, 'completed')
 
         # Cleanup temp

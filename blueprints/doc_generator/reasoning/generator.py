@@ -10,6 +10,7 @@ OLD ARCHITECTURE functions (section-by-section generation) moved to:
 import json
 import gc
 import os
+import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
@@ -166,7 +167,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
             f.write(f"TASK ID: {task_id}\n")
             f.write(f"TYPE: {response_type}\n")
             f.write(f"MODEL: {actual_model}\n")
-            f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
+            f.write(f"TIMESTAMP: {time.time()}\n")
             f.write("="*50 + "\n")
             f.write(prompt)
         
@@ -179,7 +180,7 @@ def save_ai_response(task_id: str, response_type: str, prompt: str, response: st
             f.write(f"TASK ID: {task_id}\n")
             f.write(f"TYPE: {response_type}\n")
             f.write(f"MODEL: {actual_model}\n")
-            f.write(f"TIMESTAMP: {os.path.getmtime(__file__)}\n")
+            f.write(f"TIMESTAMP: {time.time()}\n")
             f.write("="*50 + "\n")
             f.write(response)
         

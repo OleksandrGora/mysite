@@ -47,7 +47,8 @@ def generate_document_rag(
     user_prompt: Optional[str] = None,
     task_folder: Optional[str] = None,
     selected_model: Optional[str] = None,
-    chunk_params: Optional[Dict[str, Any]] = None
+    chunk_params: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[callable] = None
 ) -> str:
     """
     Generate document using RAG pipeline.
@@ -111,6 +112,9 @@ def generate_document_rag(
         _write_log(log_dir, '01_extract.txt',
                    json.dumps(step_info, ensure_ascii=False, indent=2))
 
+    if progress_callback:
+        progress_callback("Витяг тексту з джерел", 0.05)
+
     # ============================================================
     # Step 2: Chunk documents
     # ============================================================
@@ -146,6 +150,9 @@ def generate_document_rag(
         chunks_log = [c.to_dict() for c in chunks]
         _write_log(log_dir, '02_chunks_full.json',
                    json.dumps(chunks_log, ensure_ascii=False, indent=2))
+
+    if progress_callback:
+        progress_callback(f"Чанкування: {len(chunks)} фрагментів", 0.20)
 
     # ============================================================
     # Step 3: Build vector store (with cache)
@@ -191,6 +198,9 @@ def generate_document_rag(
         _write_log(log_dir, '03_embeddings.txt',
                    json.dumps(step_info, ensure_ascii=False, indent=2))
 
+    if progress_callback:
+        progress_callback("Векторна база готова" if cache_hit else "Створення ембеддингів...", 0.40)
+
     # ============================================================
     # Step 4: Parse analysis structure
     # ============================================================
@@ -213,6 +223,9 @@ def generate_document_rag(
         _write_log(log_dir, '04_analysis.txt',
                    json.dumps(step_info, ensure_ascii=False, indent=2))
 
+    if progress_callback:
+        progress_callback("Парсинг структури аналізу", 0.50)
+
     # ============================================================
     # Step 5: Build search queries
     # ============================================================
@@ -230,6 +243,9 @@ def generate_document_rag(
     if log_dir:
         _write_log(log_dir, '05_queries.json',
                    json.dumps(step_info, ensure_ascii=False, indent=2))
+
+    if progress_callback:
+        progress_callback("Побудова пошукових запитів", 0.60)
 
     # ============================================================
     # Step 6: Retrieve relevant chunks
@@ -271,6 +287,9 @@ def generate_document_rag(
     if log_dir:
         _write_log(log_dir, '06_retrieved_chunks.json',
                    json.dumps(step_info, ensure_ascii=False, indent=2))
+
+    if progress_callback:
+        progress_callback(f"Пошук: {len(retrieved_chunks)} фрагментів знайдено", 0.75)
 
     # ============================================================
     # Step 7: Build context + anonymize + generate prompt

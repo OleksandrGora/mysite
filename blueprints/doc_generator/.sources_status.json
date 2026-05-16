@@ -19,5 +19,19 @@
     "progress": 100,
     "message": "Готово (з кешу)",
     "updated_at": "2026-05-14T14:31:52.681968"
+  },
+  "машини_нарізання_extracted_(1).txt": {
+    "filename": "машини_нарізання_extracted_(1).txt",
+    "status": "ready",
+    "progress": 100,
+    "message": "Готово: 8 чанків, 19518 символів",
+    "uploaded_at": "2026-05-15T19:45:31.160393",
+    "updated_at": "2026-05-15T19:46:01.136483",
+    "started_at": "2026-05-15T19:45:31.290107",
+    "char_count": 19518,
+    "word_count": 0,
+    "chunks": 8,
+    "collection": "rag_489060f9ee300d0d",
+    "cached": false
   }
 }

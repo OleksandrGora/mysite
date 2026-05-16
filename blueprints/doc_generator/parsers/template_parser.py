@@ -256,6 +256,8 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
     
     doc.close()
     
+    full_text_str = '\n\n'.join(full_text)
+    
     # Build result similar to DOCX structure
     result = {
         'title': os.path.basename(pdf_path),
@@ -268,10 +270,11 @@ def parse_pdf_template(pdf_path: str) -> Dict[str, Any]:
         ],
         'tables': tables,  # PDF tables harder to detect accurately
         'paragraph_count': len(full_text),
-        'has_headers': len(sections) > 0
+        'has_headers': len(sections) > 0,
+        'text': full_text_str
     }
     
-    logger.info(f"PDF parsed: {result['pages']} pages, {len(sections)} sections detected")
+    logger.info(f"PDF parsed: {result['pages']} pages, {len(sections)} sections detected, {len(full_text_str)} chars")
     return result
 
 
@@ -335,6 +338,18 @@ def parse_docx_template(docx_path: str) -> Dict[str, Any]:
     logger.info(f"Parsing DOCX template: {docx_path}")
     
     doc = Document(docx_path)
+    
+    # Extract full text from all paragraphs and tables
+    full_text_parts = []
+    for para in doc.paragraphs:
+        if para.text.strip():
+            full_text_parts.append(para.text.strip())
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if row_text:
+                full_text_parts.append(' | '.join(row_text))
+    full_text = '\n\n'.join(full_text_parts)
     
     # Collect all unique style names
     style_names = set()
@@ -428,8 +443,9 @@ def parse_docx_template(docx_path: str) -> Dict[str, Any]:
     )
     
     result = structure.to_dict()
+    result['text'] = full_text
     
-    logger.info(f"Template parsed: {len(sections)} sections, {len(tables)} tables")
+    logger.info(f"Template parsed: {len(sections)} sections, {len(tables)} tables, {len(full_text)} chars")
     
     return result
 

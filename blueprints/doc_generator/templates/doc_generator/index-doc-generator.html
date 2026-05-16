@@ -486,6 +486,31 @@
             height: 17px;
             cursor: pointer;
         }
+        
+        /* Progress bar */
+        .task-progress {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #1976d2;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        .progress-text {
+            font-size: 0.85em;
+            color: #666;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -580,6 +605,7 @@
                     <button class="btn-primary" id="btn-analyze" onclick="runAnalysis()">
                         Аналізувати шаблон
                     </button>
+                    <div id="analysis-progress" class="task-progress" style="display: none; margin-top: 8px; font-size: 0.9em; color: #666;"></div>
                     
                     <!-- Analysis Result -->
                     <div id="analysis-result-container" class="analysis-result" style="display: none;">
@@ -653,6 +679,7 @@
                     <button class="btn-success" id="btn-generate" onclick="generateDocument()">
                         Створити документ
                     </button>
+                    <div id="generation-progress" class="task-progress" style="display: none; margin-top: 8px; font-size: 0.9em; color: #666;"></div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -1168,6 +1195,18 @@
                     const analyzeBtn = document.getElementById('btn-analyze');
                     const generateBtn = document.getElementById('btn-generate');
                     
+                    // Show progress if available
+                    if (task.progress && task.progress.message) {
+                        if (isAnalyzing) {
+                            setProgress('analysis-progress', task.progress.message, task.progress.percent);
+                        } else if (isGenerating) {
+                            setProgress('generation-progress', task.progress.message, task.progress.percent);
+                        }
+                    } else {
+                        setProgress('analysis-progress', '', null);
+                        setProgress('generation-progress', '', null);
+                    }
+
                     if (isAnalyzing || isGenerating) {
                         // Task is running - disable buttons
                         if (analyzeBtn) {
@@ -1206,6 +1245,8 @@
                 document.getElementById('analysis-content').value = '';
                 document.getElementById('analysis-result-container').style.display = 'none';
                 document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                setProgress('analysis-progress', '', null);
+                setProgress('generation-progress', '', null);
                 deleteBtn.style.display = 'none';
                 renderTaskSourceCheckboxes();
             }
@@ -1341,6 +1382,7 @@
                 } catch (e) {
                     showToast('Помилка створення завдання: ' + e.message, 'error');
                     log('Помилка створення: ' + e.message, 'error');
+                    setProgress('analysis-progress', '', null);
                     return;
                 }
             }
@@ -1349,6 +1391,7 @@
             const btn = document.getElementById('btn-analyze');
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Аналіз...';
+            setProgress('analysis-progress', 'Запуск аналізу...', 5);
             
             try {
                 const response = await fetch(`${API_BASE}/api/tasks/${taskId}/analysis`, {
@@ -1371,6 +1414,23 @@
                 log('Помилка аналізу: ' + e.message, 'error');
                 btn.disabled = false;
                 btn.textContent = 'Аналізувати шаблон';
+                setProgress('analysis-progress', '', null);
+            }
+        }
+        
+        // Update progress display in the modal
+        function setProgress(containerId, message, percent) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.style.display = message ? 'flex' : 'none';
+            if (message) {
+                const bar = percent != null ? percent : 0;
+                container.innerHTML = `
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill" style="width: ${bar}%"></div>
+                    </div>
+                    <span class="progress-text">${escapeHtml(message)}</span>
+                `;
             }
         }
         
@@ -1385,6 +1445,7 @@
                             clearInterval(interval);
                             document.getElementById('btn-analyze').disabled = false;
                             document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                            setProgress('analysis-progress', '', null);
                             log('Завдання не знайдено (404)', 'error');
                             showToast('Завдання не знайдено', 'error');
                         }
@@ -1397,13 +1458,20 @@
                         clearInterval(interval);
                         document.getElementById('btn-analyze').disabled = false;
                         document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                        setProgress('analysis-progress', '', null);
                         log('Помилка: ' + task.error, 'error');
                         return;
+                    }
+                    
+                    // Show progress if available
+                    if (task.progress && task.progress.message) {
+                        setProgress('analysis-progress', task.progress.message, task.progress.percent);
                     }
                     
                     if (task.status === 'idle' && task.analysis_content) {
                         // Analysis completed
                         clearInterval(interval);
+                        setProgress('analysis-progress', 'Аналіз завершено', 100);
                         document.getElementById('analysis-content').value = task.analysis_content;
                         document.getElementById('analysis-result-container').style.display = 'block';
                         document.getElementById('btn-analyze').disabled = false;
@@ -1413,15 +1481,15 @@
                         loadTasks();
                     } else if (task.status === 'failed') {
                         clearInterval(interval);
+                        setProgress('analysis-progress', task.error_message || 'Аналіз не вдався', 0);
                         document.getElementById('btn-analyze').disabled = false;
                         document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
-                        // Note: Celery already logs the error
                         showToast('Аналіз не вдався', 'error');
                     }
                 } catch (e) {
                     log('Помилка перевірки статусу: ' + e.message, 'error');
                 }
-            }, 3000);
+            }, 2000);
             
             // Stop polling after 5 minutes
             setTimeout(() => clearInterval(interval), 300000);
@@ -1489,6 +1557,7 @@
             const btn = document.getElementById('btn-generate');
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Створення...';
+            setProgress('generation-progress', 'Запуск генерації...', 5);
             
             try {
                 const response = await fetch(`${API_BASE}/api/tasks/${taskId}/generate`, {
@@ -1516,6 +1585,7 @@
                 log('Помилка генерації: ' + e.message, 'error');
                 btn.disabled = false;
                 btn.textContent = 'Створити документ';
+                setProgress('generation-progress', '', null);
             }
         }
         
@@ -1526,8 +1596,14 @@
                     const response = await fetch(`${API_BASE}/api/tasks/${taskId}`);
                     const task = await response.json();
                     
+                    // Show progress if available
+                    if (task.progress && task.progress.message) {
+                        setProgress('generation-progress', task.progress.message, task.progress.percent);
+                    }
+                    
                     if (task.status === 'completed') {
                         clearInterval(interval);
+                        setProgress('generation-progress', 'Готово', 100);
                         document.getElementById('btn-generate').disabled = false;
                         document.getElementById('btn-generate').textContent = 'Створити документ (повторно)';
                         log('Документ створено', 'success');
@@ -1536,15 +1612,15 @@
                         closeTaskModal();
                     } else if (task.status === 'failed') {
                         clearInterval(interval);
+                        setProgress('generation-progress', task.error_message || 'Помилка створення документа', 0);
                         document.getElementById('btn-generate').disabled = false;
                         document.getElementById('btn-generate').textContent = 'Створити документ';
-                        // Note: Celery already logs the error
                         showToast('Помилка створення документа', 'error');
                     }
                 } catch (e) {
                     log('Помилка перевірки статусу: ' + e.message, 'error');
                 }
-            }, 5000);
+            }, 2000);
             
             // Stop polling after 10 minutes
             setTimeout(() => clearInterval(interval), 600000);

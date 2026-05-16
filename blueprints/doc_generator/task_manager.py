@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from loguru import logger
+from celery import current_app as celery_app
 
 
 TASKS_DATA_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data'
@@ -67,7 +68,8 @@ def create_task_info(
         "generation_prompt": generation_prompt,
         "analysis_result": None,  # Path to analysis.txt or None
         "final_document": None,  # Path to result.docx or None
-        "error_message": None
+        "error_message": None,
+        "celery_task_ids": []  # Celery task IDs for cancellation on delete
     }
 
 
@@ -127,12 +129,25 @@ def get_task_by_id(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 def update_task_status(task_folder: str, status: str, error_message: str = None):
-    """Update task status."""
+    """Update task status. Clears progress when entering a running state."""
     task_info = load_task_info(task_folder)
     if task_info:
         task_info["status"] = status
         if error_message:
             task_info["error_message"] = error_message
+        if status in ('analyzing', 'generating'):
+            task_info.pop('progress', None)
+        save_task_info(task_folder, task_info)
+
+
+def update_task_progress(task_folder: str, message: str, percent: int = None):
+    """Update task progress message (for real-time UI feedback)."""
+    task_info = load_task_info(task_folder)
+    if task_info:
+        task_info["progress"] = {
+            "message": message,
+            "percent": percent
+        }
         save_task_info(task_folder, task_info)
 
 
@@ -237,10 +252,39 @@ def save_final_document(task_folder: str, document_path: str):
     logger.info(f"Final document saved: {result_path}")
 
 
+def register_celery_task(folder_path: str, celery_task_id: str):
+    """Store a Celery task ID in task-info.json for later cancellation."""
+    task_info = load_task_info(folder_path)
+    if task_info:
+        if 'celery_task_ids' not in task_info:
+            task_info['celery_task_ids'] = []
+        if celery_task_id not in task_info['celery_task_ids']:
+            task_info['celery_task_ids'].append(celery_task_id)
+            save_task_info(folder_path, task_info)
+            logger.debug(f"Registered celery task {celery_task_id} for {folder_path}")
+
+
+def _revoke_celery_tasks(task_folder: str):
+    """Revoke all Celery tasks associated with a task folder."""
+    task_info = load_task_info(task_folder)
+    if not task_info:
+        return
+    celery_ids = task_info.get('celery_task_ids', [])
+    if not celery_ids:
+        return
+    for celery_id in celery_ids:
+        try:
+            celery_app.control.revoke(celery_id, terminate=True, signal='SIGTERM')
+            logger.info(f"Revoked celery task {celery_id} for {task_folder}")
+        except Exception as e:
+            logger.warning(f"Failed to revoke celery task {celery_id}: {e}")
+
+
 def delete_task(task_folder: str) -> bool:
-    """Delete task folder and all its contents."""
+    """Delete task folder and all its contents. Revokes associated Celery tasks first."""
     try:
         if os.path.exists(task_folder):
+            _revoke_celery_tasks(task_folder)
             shutil.rmtree(task_folder)
             logger.info(f"Task deleted: {task_folder}")
             return True

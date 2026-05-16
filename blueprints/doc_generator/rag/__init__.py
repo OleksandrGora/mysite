@@ -22,7 +22,6 @@ from .prompt_parser import (
     ParsedPrompt
 )
 from .hybrid_search import HybridSearch
-from .anonymizer import Anonymizer, get_anonymizer
 
 __all__ = [
     'chunk_documents',
@@ -40,3 +39,10 @@ __all__ = [
     'build_parent_context',
     'ParsedPrompt',
 ]
+
+
+# Anonymizer requires spacy, which may not be installed.
+# Import it lazily so the rest of the rag module can be loaded without spacy.
+def _lazy_anonymizer():
+    from .anonymizer import Anonymizer, get_anonymizer
+    return Anonymizer, get_anonymizer

@@ -37,8 +37,8 @@ from .task_manager import (
     load_task_info, get_all_tasks, get_task_by_id, update_task_status,
     update_task_progress, save_analysis_result, load_analysis_result,
     save_final_document, delete_task,
-    handle_file_upload, get_available_files, get_unique_filename, register_celery_task,
-    TASKS_DATA_DIR, TEMPLATES_DIR, SOURCES_DIR
+    handle_file_upload, get_available_files, get_unique_filename, register_celery_task, sanitize_filename,
+    TASKS_DATA_DIR, SOURCES_DIR
 )
 
 # --- Debug Log Configuration ---
@@ -117,36 +117,6 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 def allowed_file(filename):
     return any(filename.endswith(ext) for ext in ALLOWED_EXTENSIONS)
-
-
-def sanitize_filename(filename):
-    """
-    Sanitize filename while preserving Unicode characters.
-    - Replace spaces with underscores
-    - Remove dangerous filesystem characters: / \\ : * ? " < > |
-    - Keep Cyrillic, parentheses, brackets, commas, plus
-    - Limit length to 200 chars
-    """
-    # Replace spaces with underscores
-    filename = filename.replace(' ', '_')
-    
-    # Remove dangerous filesystem characters
-    # Allow: letters (any language), digits, underscore, hyphen, dot, parentheses, brackets, comma, plus, equals
-    filename = re.sub(r'[^\w\-\.\(\)\[\]\,\+\=]', '', filename, flags=re.UNICODE)
-    
-    # Remove multiple consecutive dots
-    filename = re.sub(r'\.{2,}', '.', filename)
-    
-    # Limit length
-    if len(filename) > 200:
-        name, ext = os.path.splitext(filename)
-        filename = name[:200 - len(ext)] + ext
-    
-    # Ensure not empty
-    if not filename or filename == '.':
-        filename = 'file'
-    
-    return filename
 
 # --- Routes ---
 
@@ -454,14 +424,12 @@ def upload_file_unique():
         return jsonify({'error': 'No file provided'}), 400
     
     file = request.files['file']
-    upload_type = request.form.get('type', 'source')
     
-    target_dir = TEMPLATES_DIR if upload_type == 'template' else SOURCES_DIR
     original_filename = file.filename
+    safe_name = sanitize_filename(original_filename)
     
-    # Get unique filename
-    unique_filename = get_unique_filename(target_dir, original_filename)
-    target_path = os.path.join(target_dir, unique_filename)
+    unique_filename = get_unique_filename(SOURCES_DIR, safe_name)
+    target_path = os.path.join(SOURCES_DIR, unique_filename)
     
     file.save(target_path)
     
@@ -470,7 +438,7 @@ def upload_file_unique():
         'original_filename': original_filename,
         'filename': unique_filename,
         'path': target_path,
-        'renamed': unique_filename != original_filename
+        'renamed': unique_filename != safe_name
     })
 
 
@@ -588,9 +556,9 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         template_file = task_info.get('template_file')
         logger.info(f"[ANALYZE] Template file: {template_file}")
-        logger.info(f"[ANALYZE] TEMPLATES_DIR value: {TEMPLATES_DIR}")
         
-        template_path = os.path.join(TEMPLATES_DIR, template_file)
+        safe_template = sanitize_filename(template_file)
+        template_path = os.path.join(SOURCES_DIR, safe_template)
         logger.info(f"[ANALYZE] Full template path: {template_path}")
         logger.info(f"[ANALYZE] Template path exists: {os.path.exists(template_path)}")
         

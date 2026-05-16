@@ -585,7 +585,7 @@
                 
                 <!-- Analysis Section -->
                 <div class="section-group">
-                    <h3>Аналіз шаблону</h3>
+                    <h3>Аналіз джерела</h3>
                     
                     <div class="form-group">
                         <label>Промпт для аналізу</label>
@@ -593,17 +593,16 @@
                     </div>
                     
                     <div class="form-group">
-                        <label>Файл шаблону</label>
+                        <label>Файл джерела</label>
                         <div class="file-selector">
                             <select id="template-file">
-                                <option value="">-- Виберіть шаблон --</option>
+                                <option value="">-- Виберіть джерело --</option>
                             </select>
-                            <button class="btn-secondary" onclick="uploadFile('template')">Завантажити</button>
                         </div>
                     </div>
                     
                     <button class="btn-primary" id="btn-analyze" onclick="runAnalysis()">
-                        Аналізувати шаблон
+                        Аналізувати джерело
                     </button>
                     <div id="analysis-progress" class="task-progress" style="display: none; margin-top: 8px; font-size: 0.9em; color: #666;"></div>
                     
@@ -698,7 +697,7 @@
         // Global state
         let tasks = [];
         let currentTask = null;
-        let availableFiles = { templates: [], sources: [] };
+        let availableFiles = { sources: [] };
         
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -921,7 +920,7 @@
                         <div class="task-info">
                             <div class="task-name">${task.folder_name || 'Без назви'}</div>
                             <div class="task-meta">
-                                Шаблон: ${task.template_file || '-'} |
+                                Джерело: ${task.template_file || '-'} |
                                 Створено: ${formatDate(task.created_at)}
                             </div>
                         </div>
@@ -970,9 +969,9 @@
         
         function updateFileSelectors() {
             const templateSelect = document.getElementById('template-file');
-            templateSelect.innerHTML = '<option value="">-- Виберіть шаблон --</option>';
+            templateSelect.innerHTML = '<option value="">-- Виберіть джерело --</option>';
             
-            availableFiles.templates.forEach(file => {
+            (availableFiles.sources || []).forEach(file => {
                 templateSelect.innerHTML += `<option value="${file}">${file}</option>`;
             });
             
@@ -1178,12 +1177,12 @@
                     if (task.analysis_content) {
                         document.getElementById('analysis-content').value = task.analysis_content;
                         document.getElementById('analysis-result-container').style.display = 'block';
-                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон (повторно)';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати джерело (повторно)';
                         log('Аналіз завантажено', 'success');
                     } else {
                         document.getElementById('analysis-content').value = '';
                         document.getElementById('analysis-result-container').style.display = 'none';
-                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати джерело';
                     }
                     
                     deleteBtn.style.display = 'inline-block';
@@ -1211,7 +1210,7 @@
                         // Task is running - disable buttons
                         if (analyzeBtn) {
                             analyzeBtn.disabled = true;
-                            analyzeBtn.textContent = isAnalyzing ? 'Аналізується...' : 'Аналізувати шаблон';
+                            analyzeBtn.textContent = isAnalyzing ? 'Аналізується...' : 'Аналізувати джерело';
                         }
                         if (generateBtn) {
                             generateBtn.disabled = true;
@@ -1222,7 +1221,7 @@
                         if (analyzeBtn) {
                             analyzeBtn.disabled = false;
                             // Check if analysis was completed (has analysis_content)
-                            analyzeBtn.textContent = task.analysis_content ? 'Аналізувати шаблон (повторно)' : 'Аналізувати шаблон';
+                            analyzeBtn.textContent = task.analysis_content ? 'Аналізувати джерело (повторно)' : 'Аналізувати джерело';
                         }
                         if (generateBtn) {
                             generateBtn.disabled = false;
@@ -1244,7 +1243,7 @@
                 document.getElementById('template-file').value = '';
                 document.getElementById('analysis-content').value = '';
                 document.getElementById('analysis-result-container').style.display = 'none';
-                document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                document.getElementById('btn-analyze').textContent = 'Аналізувати джерело';
                 setProgress('analysis-progress', '', null);
                 setProgress('generation-progress', '', null);
                 deleteBtn.style.display = 'none';
@@ -1293,11 +1292,9 @@
                         
                         // Auto-select uploaded file (after DOM update)
                         setTimeout(() => {
-                            if (type === 'template') {
-                                const select = document.getElementById('template-file');
-                                select.value = result.filename;
-                                log(`Автовибір шаблону: ${result.filename}`, 'info');
-                            }
+                            const select = document.getElementById('template-file');
+                            select.value = result.filename;
+                            log(`Автовибір файлу: ${result.filename}`, 'info');
                         }, 100);
                     }
                 } catch (e) {
@@ -1319,7 +1316,7 @@
             log(`DEBUG: selectedIndex=${templateSelect.selectedIndex}`);
             
             if (!templateFile) {
-                showToast('Виберіть файл шаблону', 'error');
+                showToast('Виберіть файл джерела', 'error');
                 log('Помилка: templateFile пустий або не вибрано', 'error');
                 return;
             }
@@ -1327,10 +1324,10 @@
             // Create task if not exists
             let taskId = document.getElementById('task-id').value;
             if (!taskId) {
-                log(`Створення завдання: шаблон='${templateFile}', промпт='${analysisPrompt.substring(0, 50)}...'`, 'info');
+                log(`Створення завдання: джерело='${templateFile}', промпт='${analysisPrompt.substring(0, 50)}...'`, 'info');
                 
                 if (!templateFile) {
-                    showToast('Помилка: не вибрано файл шаблону', 'error');
+                    showToast('Помилка: не вибрано файл джерела', 'error');
                     log('Помилка: templateFile пустий', 'error');
                     return;
                 }
@@ -1350,7 +1347,7 @@
                     // Handle duplicate task
                     if (response.status === 409 && result.duplicate) {
                         log(`Знайдено існуюче завдання: ${result.existing_task_name}`, 'info');
-                        const createNew = confirm(`Завдання з цим шаблоном вже існує: "${result.existing_task_name}"\n\nТаке завдання існує. Створити нове завдання?`);
+                        const createNew = confirm(`Завдання з цим джерелом вже існує: "${result.existing_task_name}"\n\nТаке завдання існує. Створити нове завдання?`);
                         if (createNew) {
                             // Retry with force=true to create new task with numbered name
                             log('Створення нового завдання з force=true', 'info');
@@ -1413,7 +1410,7 @@
                 showToast('Помилка: ' + e.message, 'error');
                 log('Помилка аналізу: ' + e.message, 'error');
                 btn.disabled = false;
-                btn.textContent = 'Аналізувати шаблон';
+                btn.textContent = 'Аналізувати джерело';
                 setProgress('analysis-progress', '', null);
             }
         }
@@ -1444,7 +1441,7 @@
                         if (response.status === 404) {
                             clearInterval(interval);
                             document.getElementById('btn-analyze').disabled = false;
-                            document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                            document.getElementById('btn-analyze').textContent = 'Аналізувати джерело';
                             setProgress('analysis-progress', '', null);
                             log('Завдання не знайдено (404)', 'error');
                             showToast('Завдання не знайдено', 'error');
@@ -1457,7 +1454,7 @@
                     if (task.error) {
                         clearInterval(interval);
                         document.getElementById('btn-analyze').disabled = false;
-                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати джерело';
                         setProgress('analysis-progress', '', null);
                         log('Помилка: ' + task.error, 'error');
                         return;
@@ -1475,7 +1472,7 @@
                         document.getElementById('analysis-content').value = task.analysis_content;
                         document.getElementById('analysis-result-container').style.display = 'block';
                         document.getElementById('btn-analyze').disabled = false;
-                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон (повторно)';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати джерело (повторно)';
                         log('Аналіз завершено', 'success');
                         showToast('Аналіз завершено', 'success');
                         loadTasks();
@@ -1483,7 +1480,7 @@
                         clearInterval(interval);
                         setProgress('analysis-progress', task.error_message || 'Аналіз не вдався', 0);
                         document.getElementById('btn-analyze').disabled = false;
-                        document.getElementById('btn-analyze').textContent = 'Аналізувати шаблон';
+                        document.getElementById('btn-analyze').textContent = 'Аналізувати джерело';
                         showToast('Аналіз не вдався', 'error');
                     }
                 } catch (e) {

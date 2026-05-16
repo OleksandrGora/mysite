@@ -5,6 +5,7 @@ Handles task creation, saving, loading from Tasks-data folder.
 import os
 import sys
 import json
+import re
 import shutil
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -14,13 +15,31 @@ from celery import current_app as celery_app
 
 
 TASKS_DATA_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data'
-TEMPLATES_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data/Templates'
 SOURCES_DIR = '/home/openclaw/mysite/blueprints/doc_generator/Tasks-data/Sources'
+
+
+def sanitize_filename(filename):
+    """
+    Sanitize filename while preserving Unicode characters.
+    - Replace spaces with underscores
+    - Remove dangerous filesystem characters: / \\ : * ? " < > |
+    - Keep Cyrillic, parentheses, brackets, commas, plus
+    - Limit length to 200 chars
+    """
+    filename = filename.replace(' ', '_')
+    filename = re.sub(r'[^\w\-\.\(\)\[\]\,\+\=]', '', filename, flags=re.UNICODE)
+    filename = re.sub(r'\.{2,}', '.', filename)
+    if len(filename) > 200:
+        name, ext = os.path.splitext(filename)
+        filename = name[:200 - len(ext)] + ext
+    if not filename or filename == '.':
+        filename = 'file'
+    return filename
 
 
 def ensure_directories():
     """Ensure all required directories exist."""
-    for dir_path in [TASKS_DATA_DIR, TEMPLATES_DIR, SOURCES_DIR]:
+    for dir_path in [TASKS_DATA_DIR, SOURCES_DIR]:
         os.makedirs(dir_path, exist_ok=True)
 
 
@@ -101,7 +120,7 @@ def get_all_tasks() -> List[Dict[str, Any]]:
     
     for item in os.listdir(TASKS_DATA_DIR):
         # Skip system folders
-        if item in ['Sources', 'Templates']:
+        if item in ['Sources']:
             continue
             
         task_folder = os.path.join(TASKS_DATA_DIR, item)
@@ -298,20 +317,20 @@ def handle_file_upload(file, upload_type: str) -> Dict[str, Any]:
     """
     Handle file upload with uniqueness check.
     upload_type: 'template' or 'source'
+    Both types saved to Sources directory.
     Returns: {"status": "success|exists|copied", "path": "...", "filename": "..."}
     """
     ensure_directories()
     
-    target_dir = TEMPLATES_DIR if upload_type == 'template' else SOURCES_DIR
-    original_filename = file.filename
-    target_path = os.path.join(target_dir, original_filename)
+    safe_name = sanitize_filename(file.filename)
+    target_path = os.path.join(SOURCES_DIR, safe_name)
     
     # Check if file exists
     if os.path.exists(target_path):
         return {
             "status": "exists",
             "path": target_path,
-            "filename": original_filename
+            "filename": safe_name
         }
     
     # Save file
@@ -320,7 +339,7 @@ def handle_file_upload(file, upload_type: str) -> Dict[str, Any]:
     return {
         "status": "success",
         "path": target_path,
-        "filename": original_filename
+        "filename": safe_name
     }
 
 
@@ -328,21 +347,21 @@ def get_available_files(file_type: str = 'all') -> Dict[str, List[str]]:
     """
     Get list of available files.
     file_type: 'template', 'source', or 'all'
+    All files are stored in Sources directory.
     """
     ensure_directories()
     result = {}
     
-    if file_type in ['template', 'all']:
-        result['templates'] = [
-            f for f in os.listdir(TEMPLATES_DIR)
-            if os.path.isfile(os.path.join(TEMPLATES_DIR, f))
-        ]
+    file_list = [
+        f for f in os.listdir(SOURCES_DIR)
+        if os.path.isfile(os.path.join(SOURCES_DIR, f)) and not f.startswith('.')
+    ]
     
     if file_type in ['source', 'all']:
-        result['sources'] = [
-            f for f in os.listdir(SOURCES_DIR)
-            if os.path.isfile(os.path.join(SOURCES_DIR, f)) and not f.startswith('.')
-        ]
+        result['sources'] = file_list
+    
+    if file_type in ['template', 'all']:
+        result['templates'] = file_list
     
     return result
 

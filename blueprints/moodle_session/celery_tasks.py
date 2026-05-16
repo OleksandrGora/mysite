@@ -62,11 +62,14 @@ def check_and_run_scheduled_report(self):
     # було перезапущено після запланованого часу
     if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_min):
         logger.info(f"Celery beat: настав час запуску ({target_time}), запускаємо звіт")
+        # Зберігаємо last_scheduled_date ДО запуску звіту, щоб уникнути
+        # дублювання: якщо звіт виконується довше 1 хвилини, наступний
+        # тік beat-а побачить що сьогодні вже запускались і пропустить.
+        save_config({"last_scheduled_date": today_str})
         result = run_report(config)
         save_config({
             "last_run": now.isoformat(),
             "last_run_status": "success" if result.get("success") else "error",
-            "last_scheduled_date": today_str,
         })
         return result
 

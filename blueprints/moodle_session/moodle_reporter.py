@@ -268,6 +268,20 @@ def is_submitted(assign_id: int, token: str, moodle_url: str) -> bool:
         return False
 
 
+def is_quiz_attempted(quiz_id: int, token: str, moodle_url: str) -> bool:
+    """Перевіряє чи студент вже проходив тест."""
+    try:
+        data = moodle_api_call(token, 'mod_quiz_get_user_attempts', moodle_url, {'quizid': quiz_id})
+        attempts = data.get('attempts', [])
+        if attempts:
+            logger.debug(f"is_quiz_attempted(quiz_id={quiz_id}): {len(attempts)} спроб")
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"is_quiz_attempted(quiz_id={quiz_id}): {e}")
+        return False
+
+
 # =============================================================
 # Класифікація
 # =============================================================
@@ -591,6 +605,9 @@ def run_report(config: Optional[dict] = None) -> dict:
                 for q in quizzes:
                     item = classify(q, semester, True)
                     if classify_item(item) == 'hide':
+                        continue
+                    if is_quiz_attempted(q['id'], token, moodle_url):
+                        logger.debug(f"Тест '{q.get('name')}' вже пройдено, пропускаємо")
                         continue
                     items.append(item)
             except Exception:

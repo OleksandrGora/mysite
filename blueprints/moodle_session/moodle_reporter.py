@@ -371,6 +371,23 @@ TYPE_LABELS = {
 }
 
 
+def is_item_open(item: dict, is_quiz: bool) -> bool:
+    """Check if a quiz or assignment is currently open."""
+    now_ts = datetime.now().timestamp()
+
+    if is_quiz:
+        time_open = item.get('timeopen', 0)
+        time_close = item.get('timeclose', 0)
+    else:
+        time_open = item.get('allowsubmissionsfromdate', 0)
+        time_close = item.get('duedate', 0)
+
+    is_opened = (time_open == 0 or time_open <= now_ts)
+    is_not_closed = (time_close == 0 or time_close > now_ts)
+
+    return is_opened and is_not_closed
+
+
 def extract_number(name: str) -> str:
     """Витягує число (в т.ч. складене 1.2, 3.1) з назви завдання."""
     # Спочатку зі скорочення (ЛР1.2 → 1.2)

@@ -7,7 +7,7 @@ from datetime import datetime
 from celery import shared_task
 from loguru import logger
 
-from .moodle_reporter import run_report
+from .moodle_reporter import run_report, get_courses, get_quizzes, get_assignments, is_item_open, detect_type, send_telegram, fmt_date, get_moodle_token
 from .config_manager import load_config, save_config
 
 
@@ -74,3 +74,133 @@ def check_and_run_scheduled_report(self):
         return result
 
     return {"skipped": True, "reason": "Not the right time"}
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=60)
+def check_new_open_tests_task(self):
+    """
+    Celery Beat задача: перевіряє нові відкриті тести та завдання (other type).
+    Запускається щогодини, відправляє Telegram сповіщення про нововідкриті елементи.
+    """
+    logger.info("Celery task: запуск check_new_open_tests_task")
+    config = load_config()
+
+    email = config.get('moodle_email', '')
+    password = config.get('moodle_password', '')
+    moodle_url = config.get('moodle_url', 'https://elearn.nubip.edu.ua').rstrip('/')
+    saved_token = config.get('moodle_token', '')
+    bot_token = config.get('telegram_bot_token', '')
+    chat_ids_raw = config.get('telegram_chat_ids', '')
+
+    if not bot_token or not chat_ids_raw:
+        logger.warning("Celery task: Telegram не налаштовано, пропускаємо")
+        return {"skipped": True, "reason": "Telegram not configured"}
+
+    chat_ids = [cid.strip() for cid in chat_ids_raw.split(',') if cid.strip()]
+
+    # Отримуємо токен
+    if saved_token:
+        token = saved_token
+    else:
+        token = get_moodle_token(email, password, moodle_url)
+        if not token:
+            msg = "Не вдалося отримати Moodle API token"
+            logger.error(f"Celery task: {msg}")
+            return {"success": False, "error": msg}
+
+    # Завантажуємо попередній стан
+    state = config.get('test_notification_state', {})
+    seen_items = state.get('seen_items', {})
+
+    current_items = {}
+    newly_opened = []
+
+    try:
+        courses = get_courses(token, moodle_url)
+    except Exception as e:
+        logger.error(f"Celery task: помилка отримання курсів: {e}")
+        return {"success": False, "error": str(e)}
+
+    for c in courses:
+        if c.get('hidden'):
+            continue
+
+        course_id = c['id']
+        course_name = c.get('fullname', '')
+
+        # Quizzes (all are tests)
+        try:
+            quizzes = get_quizzes(course_id, token, moodle_url)
+            for q in quizzes:
+                item_id = q['id']
+                key = f"{course_id}_{item_id}"
+                item_open = is_item_open(q, is_quiz=True)
+
+                current_items[key] = {
+                    'course_id': course_id,
+                    'item_id': item_id,
+                    'course_name': course_name,
+                    'item_name': q.get('name', ''),
+                    'item_type': 'quiz',
+                    'time_close': q.get('timeclose', 0),
+                    'was_open': item_open,
+                }
+
+                prev = seen_items.get(key)
+                if item_open and (prev is None or not prev.get('was_open')):
+                    newly_opened.append(current_items[key])
+        except Exception as e:
+            logger.warning(f"Celery task: помилка отримання тестів для курсу {course_id}: {e}")
+
+        # Assignments — only 'other' type
+        try:
+            assignments = get_assignments(course_id, token, moodle_url)
+            for a in assignments:
+                if detect_type(a.get('name', '')) != 'other':
+                    continue
+                item_id = a['id']
+                key = f"{course_id}_{item_id}"
+                item_open = is_item_open(a, is_quiz=False)
+
+                current_items[key] = {
+                    'course_id': course_id,
+                    'item_id': item_id,
+                    'course_name': course_name,
+                    'item_name': a.get('name', ''),
+                    'item_type': 'assignment',
+                    'time_close': a.get('duedate', 0),
+                    'was_open': item_open,
+                }
+
+                prev = seen_items.get(key)
+                if item_open and (prev is None or not prev.get('was_open')):
+                    newly_opened.append(current_items[key])
+        except Exception as e:
+            logger.warning(f"Celery task: помилка отримання завдань для курсу {course_id}: {e}")
+
+    # Зберігаємо оновлений стан (видаляємо елементи, яких більше немає)
+    save_config({
+        'test_notification_state': {
+            'seen_items': current_items,
+        }
+    })
+
+    if not newly_opened:
+        logger.info("Celery task: нових відкритих елементів немає")
+        return {"success": True, "new_items": 0}
+
+    # Формуємо повідомлення
+    lines = ['🔔 Нові відкриті тести/завдання:']
+    for item in newly_opened:
+        tc = item.get('time_close')
+        if tc and tc > 0:
+            dt = datetime.fromtimestamp(tc)
+            lines.append(f"{item['course_name']}, {item['item_name']} відкрито до {fmt_date(dt)}")
+        else:
+            lines.append(f"{item['course_name']}, {item['item_name']} відкрито (без дедлайну)")
+
+    message = '\n'.join(lines)
+    logger.info(f"Celery task: надсилаємо сповіщення про {len(newly_opened)} нових елементів")
+    send_telegram(message, bot_token, chat_ids)
+
+    return {"success": True, "new_items": len(newly_opened)}

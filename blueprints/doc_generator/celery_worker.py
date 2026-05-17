@@ -39,6 +39,10 @@ celery_app.conf.beat_schedule = {
         'task': 'blueprints.moodle_session.celery_tasks.check_and_run_scheduled_report',
         'schedule': crontab(minute='*'),  # щохвилини
     },
+    'check-new-open-tests': {
+        'task': 'blueprints.moodle_session.celery_tasks.check_new_open_tests_task',
+        'schedule': crontab(minute=0),  # щогодини
+    },
 }
 
 if __name__ == '__main__':

@@ -606,9 +606,15 @@ def run_report(config: Optional[dict] = None) -> dict:
                     item = classify(q, semester, True)
                     if classify_item(item) == 'hide':
                         continue
-                    if is_quiz_attempted(q['id'], token, moodle_url):
-                        logger.debug(f"Тест '{q.get('name')}' вже пройдено, пропускаємо")
-                        continue
+                    name = q.get('name', '')
+                    if detect_type(name) == 'module':
+                        if is_quiz_attempted(q['id'], token, moodle_url):
+                            logger.debug(f"Модуль '{name}' вже пройдено, пропускаємо")
+                            continue
+                    else:
+                        if is_quiz_attempted(q['id'], token, moodle_url):
+                            logger.debug(f"Тест '{name}' вже пройдено, пропускаємо")
+                            continue
                     items.append(item)
             except Exception:
                 pass

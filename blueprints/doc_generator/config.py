@@ -32,6 +32,10 @@ MAX_TOKENS_PER_SECTION = 4000
 MAX_TOKENS_FOR_TABLE = 2000
 TEMPERATURE = 0.3  # Lower for more consistent output
 
+# Chunked Analysis Settings
+ANALYSIS_CHUNK_SIZE = 100000  # Max chars per chunk when splitting large documents
+ANALYSIS_MAX_CHUNKS = 10  # Max chunks as a safeguard
+
 # Model Provider Detection
 def is_gemini_model(model_name: str) -> bool:
     """Check if model is from Google Gemini."""

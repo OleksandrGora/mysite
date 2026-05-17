@@ -117,7 +117,8 @@ def days_until(ts: Optional[int]) -> float:
 def is_open_soon(ts: Optional[int]) -> bool:
     if not ts or ts == 0:
         return False
-    return days_until(ts) <= 7
+    dd = days_until(ts)
+    return 0 <= dd <= 7
 
 
 # =============================================================
@@ -328,7 +329,8 @@ def classify_item(item: dict) -> str:
             # Решта тестів без часу (іспити тощо) — показуємо
         if item['timeClose'] and item['timeClose'] * 1000 < datetime.now().timestamp() * 1000:
             return 'hide'                          # вже закритий
-        # Тести не фільтруємо за isRecent — якщо відкриті, показуємо
+        if not item.get('isRecent', True):
+            return 'hide'                          # занадто старий
         is_open = not item['timeOpen'] or item['timeOpen'] * 1000 < datetime.now().timestamp() * 1000
         if is_open:
             return 'show'                          # відкритий зараз
@@ -595,6 +597,8 @@ def run_report(config: Optional[dict] = None) -> dict:
                 item = classify(a, semester, False)
                 if classify_item(item) == 'hide':
                     continue
+                if a.get('nosubmissions'):
+                    continue
                 if is_submitted(a['id'], token, moodle_url):
                     continue
                 items.append(item)
@@ -607,14 +611,10 @@ def run_report(config: Optional[dict] = None) -> dict:
                     if classify_item(item) == 'hide':
                         continue
                     name = q.get('name', '')
-                    if detect_type(name) == 'module':
-                        if is_quiz_attempted(q['id'], token, moodle_url):
-                            logger.debug(f"Модуль '{name}' вже пройдено, пропускаємо")
-                            continue
-                    else:
-                        if is_quiz_attempted(q['id'], token, moodle_url):
-                            logger.debug(f"Тест '{name}' вже пройдено, пропускаємо")
-                            continue
+                    if is_quiz_attempted(q['id'], token, moodle_url):
+                        kind = 'Модуль' if detect_type(name) == 'module' else 'Тест'
+                        logger.debug(f"{kind} '{name}' вже пройдено, пропускаємо")
+                        continue
                     items.append(item)
             except Exception:
                 pass

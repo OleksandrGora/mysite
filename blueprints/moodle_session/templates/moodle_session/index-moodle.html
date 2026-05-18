@@ -405,6 +405,7 @@
       <div class="actions">
         <button class="btn btn-primary" onclick="saveSettings()">💾 Зберегти налаштування</button>
         <button class="btn btn-success" id="btnTestRun" onclick="testRun()">▶ Тестувати — запустити звіт</button>
+        <button class="btn btn-success" id="btnTestNewOpen" onclick="testNewOpenTests()">▶ Тест — нові відкриті</button>
       </div>
 
       <!-- Статус останнього запуску -->
@@ -523,6 +524,41 @@
       .finally(function() {
         btn.disabled = false;
         btn.innerHTML = '▶ Тестувати — запустити звіт';
+      });
+    }
+
+    // =============================================================
+    // Test new open tests
+    // =============================================================
+    function testNewOpenTests() {
+      var btn = document.getElementById('btnTestNewOpen');
+      var logBox = document.getElementById('logBox');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Перевіряємо...';
+      logBox.textContent = 'Перевіряємо нові відкриті тести...\n';
+      logBox.classList.add('visible');
+
+      fetch('/moodle-session/api/test-new-open-tests', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) {
+          var count = d.new_items || 0;
+          logBox.textContent += '\n✅ Перевірку завершено!\n';
+          logBox.textContent += 'Знайдено нових відкритих: ' + count + '\n';
+          flash('Знайдено ' + count + ' нових відкритих', 'success');
+        } else {
+          logBox.textContent += '\n❌ Помилка: ' + (d.error || 'Невідома помилка') + '\n';
+          flash('Помилка: ' + (d.error || 'Невідома помилка'), 'error');
+        }
+      })
+      .catch(function(e) {
+        logBox.textContent += '\n❌ Помилка запиту: ' + e.message + '\n';
+        flash('Помилка: ' + e.message, 'error');
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '▶ Тест — нові відкриті';
       });
     }
 

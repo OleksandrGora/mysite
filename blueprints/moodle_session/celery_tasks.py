@@ -7,7 +7,12 @@ from datetime import datetime
 from celery import shared_task
 from loguru import logger
 
-from .moodle_reporter import run_report, get_courses, get_quizzes, get_assignments, is_item_open, detect_type, send_telegram, fmt_date, get_moodle_token
+from .moodle_reporter import (
+    run_report, get_courses, get_quizzes, get_assignments, is_item_open,
+    detect_type, send_telegram, fmt_date, get_moodle_token,
+    classify, classify_item, is_quiz_attempted, is_submitted,
+    get_semester, _should_skip,
+)
 from .config_manager import load_config, save_config
 
 
@@ -98,6 +103,12 @@ def check_new_open_tests_task(self):
 
     chat_ids = [cid.strip() for cid in chat_ids_raw.split(',') if cid.strip()]
 
+    # Семестр
+    semester = get_semester()
+    if not semester:
+        logger.info("Celery task: канікули, пропускаємо")
+        return {"skipped": True, "reason": "Holidays"}
+
     # Отримуємо токен
     if saved_token:
         token = saved_token
@@ -121,6 +132,8 @@ def check_new_open_tests_task(self):
         logger.error(f"Celery task: помилка отримання курсів: {e}")
         return {"success": False, "error": str(e)}
 
+    now_ts = datetime.now().timestamp()
+
     for c in courses:
         if c.get('hidden'):
             continue
@@ -132,17 +145,43 @@ def check_new_open_tests_task(self):
         try:
             quizzes = get_quizzes(course_id, token, moodle_url)
             for q in quizzes:
+                name = q.get('name', '')
+
+                # Skip "навчальні" tests
+                if 'навчальн' in name.lower():
+                    continue
+
+                # Skip "самоконтроль" tests
+                if _should_skip(q):
+                    continue
+
+                # Classify and filter
+                item = classify(q, semester, True)
+                if classify_item(item) == 'hide':
+                    continue
+
+                # Skip if already attempted
+                if is_quiz_attempted(q['id'], token, moodle_url):
+                    continue
+
+                # Check if currently open using item timing
+                time_open = item.get('timeOpen')
+                time_close = item.get('timeClose')
+                item_open = (
+                    (time_open is None or time_open <= now_ts)
+                    and (time_close is None or time_close > now_ts)
+                )
+
                 item_id = q['id']
                 key = f"{course_id}_{item_id}"
-                item_open = is_item_open(q, is_quiz=True)
 
                 current_items[key] = {
                     'course_id': course_id,
                     'item_id': item_id,
                     'course_name': course_name,
-                    'item_name': q.get('name', ''),
+                    'item_name': name,
                     'item_type': 'quiz',
-                    'time_close': q.get('timeclose', 0),
+                    'time_close': time_close or 0,
                     'was_open': item_open,
                 }
 
@@ -158,9 +197,30 @@ def check_new_open_tests_task(self):
             for a in assignments:
                 if detect_type(a.get('name', '')) != 'other':
                     continue
+
+                # Classify and filter
+                item = classify(a, semester, False)
+                if classify_item(item) == 'hide':
+                    continue
+
+                # Skip if nosubmissions
+                if a.get('nosubmissions'):
+                    continue
+
+                # Skip if already submitted
+                if is_submitted(a['id'], token, moodle_url):
+                    continue
+
+                # Check if currently open using item timing
+                time_open = item.get('timeOpen')
+                time_close = item.get('timeClose')
+                item_open = (
+                    (time_open is None or time_open <= now_ts)
+                    and (time_close is None or time_close > now_ts)
+                )
+
                 item_id = a['id']
                 key = f"{course_id}_{item_id}"
-                item_open = is_item_open(a, is_quiz=False)
 
                 current_items[key] = {
                     'course_id': course_id,
@@ -168,7 +228,7 @@ def check_new_open_tests_task(self):
                     'course_name': course_name,
                     'item_name': a.get('name', ''),
                     'item_type': 'assignment',
-                    'time_close': a.get('duedate', 0),
+                    'time_close': time_close or 0,
                     'was_open': item_open,
                 }
 

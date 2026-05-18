@@ -127,6 +127,16 @@ def test_run():
     return jsonify(result), status_code
 
 
+@moodle_session_bp.route('/api/test-new-open-tests', methods=['POST'])
+@login_required
+def test_new_open_tests():
+    """Тестовий запуск перевірки нових відкритих тестів."""
+    logger.info(f"[MOODLE_SESSION] Тест new-open-tests від {session.get('email')}")
+    from .celery_tasks import check_new_open_tests_task
+    result = check_new_open_tests_task.apply()
+    return jsonify(result.get())
+
+
 # =============================================================
 # Статус
 # =============================================================

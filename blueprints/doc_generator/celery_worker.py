@@ -6,9 +6,26 @@ Run with: celery -A celery_worker worker --loglevel=info
 from celery import Celery
 from celery.schedules import crontab
 from dotenv import load_dotenv
+from loguru import logger
 import os
+import sys
 
 load_dotenv()
+
+# Налаштування loguru для запису в файл (спільний із Flask-застосунком)
+log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+logger.add(
+    os.path.join(log_dir, "mysite_{time:YYYY-MM-DD}.log"),
+    rotation="00:00",
+    retention="7 days",
+    level="DEBUG",
+    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+    enqueue=True,
+    backtrace=True,
+    diagnose=True,
+)
+logger.add(sys.stderr, level="INFO")
 
 # Celery configuration
 celery_app = Celery(

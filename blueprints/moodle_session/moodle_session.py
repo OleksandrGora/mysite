@@ -4,10 +4,8 @@ import random
 from playwright.sync_api import sync_playwright
 from loguru import logger
 
-USER_DATA_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    'data', 'playwright_profile'
-)
+
+USER_DATA_DIR = '/home/openclaw/.chrome-moodle-profile'
 
 STEALTH_SCRIPT = """
 // Override the webdriver detection
@@ -39,7 +37,6 @@ window.navigator.permissions.query = (parameters) => (
     parameters.name === 'notifications' ?
         Promise.resolve({ state: Notification.permission }) :
         originalQuery(parameters)
-);
 
 // Remove webdriver trace
 delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
@@ -84,7 +81,7 @@ def get_moodle_session(
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 USER_DATA_DIR,
-                headless=True,
+                headless=False,
                 channel="chrome",
                 args=[
                     '--disable-blink-features=AutomationControlled',
@@ -121,7 +118,19 @@ def get_moodle_session(
             logger.debug(f"Moodle session: перехід на {moodle_url}/login/index.php")
             page.goto(f"{moodle_url}/login/index.php", wait_until='networkidle')
             _random_delay()
-            logger.debug("Moodle session: сторінка логіну завантажена")
+            logger.debug(f"Moodle session: сторінка логіну завантажена, URL: {page.url[:200]}")
+
+            # Перевіряємо чи вже залогінені
+            logout_link = page.query_selector('a[href*="logout"]')
+            if logout_link:
+                logger.info("Moodle session: вже залогінені, читаємо cookies")
+                cookies = browser.cookies()
+                session = next(
+                    (c["value"] for c in cookies if c["name"] == "MoodleSession"),
+                    None,
+                )
+                browser.close()
+                return session
 
             # 2. Знаходимо і клікаємо кнопку Google OAuth
             oauth_link = page.query_selector('a[href*="oauth2"]')

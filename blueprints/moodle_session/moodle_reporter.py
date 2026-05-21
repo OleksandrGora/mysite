@@ -246,7 +246,7 @@ def is_submitted(assign_id: int, token: str, moodle_url: str) -> bool:
         submission = lastattempt.get('submission', {})
         sid = submission.get('id')
         status = submission.get('status', '')
-        logger.debug(f"is_submitted(assign_id={assign_id}): status='{status}', has_id={bool(sid)}")
+        # logger.debug(f"is_submitted(assign_id={assign_id}): status='{status}', has_id={bool(sid)}")
 
         # Завдання здано: статус 'submitted'
         if status == 'submitted':
@@ -260,7 +260,7 @@ def is_submitted(assign_id: int, token: str, moodle_url: str) -> bool:
             has_grade = False
         has_grading = bool(lastattempt.get('grading'))
         if has_grade or has_grading:
-            logger.debug(f"is_submitted(assign_id={assign_id}): має оцінку, вважаємо виконаним")
+            # logger.debug(f"is_submitted(assign_id={assign_id}): має оцінку, вважаємо виконаним")
             return True
 
         return False
@@ -275,7 +275,7 @@ def is_quiz_attempted(quiz_id: int, token: str, moodle_url: str) -> bool:
         data = moodle_api_call(token, 'mod_quiz_get_user_attempts', moodle_url, {'quizid': quiz_id})
         attempts = data.get('attempts', [])
         if attempts:
-            logger.debug(f"is_quiz_attempted(quiz_id={quiz_id}): {len(attempts)} спроб")
+            # logger.debug(f"is_quiz_attempted(quiz_id={quiz_id}): {len(attempts)} спроб")
             return True
         return False
     except Exception as e:

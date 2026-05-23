@@ -457,7 +457,7 @@
             }
         }
         
-        @media (max-width: 480px) {
+@media (max-width: 480px) {
             body {
                 padding: 0;
             }
@@ -472,6 +472,7 @@
             
             h1 {
                 font-size: 18px;
+                margin-bottom: 0;
             }
             
             h2 {
@@ -517,6 +518,12 @@
                 padding: 8px;
             }
         }
+        
+        @media (max-width: 700px) {
+            #design-cards {
+                grid-template-columns: 1fr !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -558,6 +565,10 @@
                         <input type="checkbox" id="generate-images">
                         Генерувати зображення
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="suggest-design">
+                        ✨ Запропонувати дизайн
+                    </label>
                     <div class="token-display">
                         <span class="token-label">Токенів використано:</span>
                         <span class="token-value" id="token-count">0</span>
@@ -586,6 +597,18 @@
     </div>
     
     <div id="toast" class="toast"></div>
+
+    <!-- Design Modal -->
+    <div id="design-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;" onclick="if(event.target===this)closeDesignModal()">
+        <div style="background:white;margin:40px auto;max-width:900px;border-radius:12px;padding:30px;position:relative;">
+            <h2 style="margin-bottom:20px;text-align:center;">Оберіть дизайн</h2>
+            <div id="design-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+            </div>
+            <div style="text-align:center;margin-top:20px;">
+                <button class="btn-secondary" onclick="closeDesignModal()">Скасувати</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         const API_BASE = '/pptx-generator';
@@ -613,6 +636,9 @@
                     if (state.generateImages !== undefined) {
                         document.getElementById('generate-images').checked = state.generateImages;
                     }
+                    if (state.suggestDesign !== undefined) {
+                        document.getElementById('suggest-design').checked = state.suggestDesign;
+                    }
                 }
                 // Always reset token count to 0 on page load
                 document.getElementById('token-count').textContent = '0';
@@ -627,7 +653,8 @@
                 const text = document.getElementById('json-input').value;
                 const provider = document.querySelector('input[name="image-provider"]:checked').value;
                 const generateImages = document.getElementById('generate-images').checked;
-                const state = { text, provider, generateImages };
+                const suggestDesign = document.getElementById('suggest-design').checked;
+                const state = { text, provider, generateImages, suggestDesign };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             } catch (e) {
                 console.error('Failed to save state:', e);
@@ -643,6 +670,7 @@
             radio.addEventListener('change', saveState);
         });
         document.getElementById('generate-images').addEventListener('change', saveState);
+        document.getElementById('suggest-design').addEventListener('change', saveState);
         window.addEventListener('beforeunload', saveState);
 
         loadSavedState();
@@ -729,12 +757,56 @@
 
             const provider = document.querySelector('input[name="image-provider"]:checked').value;
             const generateImages = document.getElementById('generate-images').checked;
+            const suggestDesign = document.getElementById('suggest-design').checked;
+
+            let designConfig = null;
+            let effectiveInput = input;
+
+            if (suggestDesign) {
+                let slides;
+                try {
+                    slides = JSON.parse(input);
+                } catch {
+                    showToast('Для пропозиції дизайну потрібен валідний JSON', 'error');
+                    return;
+                }
+
+                logClear();
+                logLine('▶ Аналізую тему, пропоную дизайни...');
+                statusText.textContent = 'Аналіз теми...';
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loading"></span> Аналіз...';
+
+                const result = await fetchDesignSuggestions(slides, provider);
+
+                if (!result || !result.designs || !result.designs.length) {
+                    showToast('Не вдалось отримати варіанти дизайну. Продовжую з випадковим.', 'warning');
+                    logLine('⚠ Не вдалось отримати дизайни, буде випадковий', 'warning');
+                } else {
+                    if (result.tokens && result.tokens.total_tokens) {
+                        document.getElementById('token-count').textContent =
+                            (parseInt(document.getElementById('token-count').textContent.replace(/\D/g,'')) + result.tokens.total_tokens).toLocaleString();
+                    }
+                    designConfig = await showDesignModal(result.designs);
+                    if (designConfig === null) {
+                        statusText.textContent = 'Скасовано';
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>+</span> Створити презентацію';
+                        logLine('✗ Користувач скасував вибір дизайну', 'warning');
+                        return;
+                    }
+                }
+
+                effectiveInput = JSON.stringify({ slides, design_config: designConfig });
+            }
 
             isGenerating = true;
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Генерую...';
             statusText.textContent = 'Запуск...';
-            logClear();
+            if (!suggestDesign) {
+                logClear();
+            }
             logLine('▶ Запуск генерації...');
 
             try {
@@ -743,7 +815,7 @@
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: input
+                        body: effectiveInput
                     }
                 );
 
@@ -805,21 +877,45 @@
 - title (string) — назва слайду, коротка та інформативна
 - body (string) — основний текст слайду (2-4 речення з ключовою інформацією)
 - image_description (string) — детальний опис ілюстрації для генерації ШІ (вказати: предмет, колірна гама, композиція, настрій)
+- content_type (string, опціонально) — тип вмісту:
+  * "text" — звичайний текст (за замовчуванням)
+  * "table" — body містить табличні дані у вигляді markdown-таблиці (використовуй якщо є структуровані табличні дані)
+  * "chart" — body містить числові дані для діаграми, формат: "Категорія: значення" (використовуй для порівняльних числових даних)
 
 Вимоги до JSON:
 - Поверни ТІЛЬКИ валідний JSON масив, без markdown блоків (без \`\`\`)
 - Кожен об'єкт слайду обов'язково має містити поля slide_number, title, body
 - Поле image_description заповнюй для кожного слайду, де логічно потрібна ілюстрація
+- Якщо у вхідних даних є таблиці або числові порівняння — обов'язково використай content_type "table" або "chart"
 - Текст має бути українською мовою
 - slide_number має йти послідовно від 1 до N без пропусків
 - Опис зображення має бути детальним (15-30 слів), вказувати стиль: схема/інфографіка/фотореалістичне/ілюстрація/діаграма
 
-Приклад структури одного слайду:
+Приклад слайду з текстом:
 {
   "slide_number": 1,
   "title": "Назва слайду",
   "body": "Основний текст слайду з поясненням ключової ідеї. Додатковий контекст або факти.",
-  "image_description": "Стиль: інфографіка. Схема процесу зі стрілками, блакитні та зелені кольори, мінімалістичний дизайн, білий фон, плоскі іконки"
+  "image_description": "Стиль: інфографіка. Схема процесу зі стрілками, блакитні та зелені кольори, мінімалістичний дизайн, білий фон, плоскі іконки",
+  "content_type": "text"
+}
+
+Приклад слайду з таблицею:
+{
+  "slide_number": 2,
+  "title": "Порівняльна таблиця",
+  "body": "| Показник | 2024 | 2025 |\n|----------|------|------|\n| Дохід | 100 | 150 |\n| Витрати | 80 | 110 |",
+  "image_description": "Таблиця з даними",
+  "content_type": "table"
+}
+
+Приклад слайду з діаграмою:
+{
+  "slide_number": 3,
+  "title": "Розподіл бюджету",
+  "body": "Освіта: 45\nОхорона здоров'я: 30\nІнфраструктура: 25",
+  "image_description": "Діаграма розподілу бюджету",
+  "content_type": "chart"
 }
 
 Поверни готовий JSON масив для всіх слайдів:`;
@@ -905,6 +1001,99 @@
             }
         }
         
+        function renderDesignSVG(design) {
+            const W = 220, H = 140;
+            const bg = design.global.background_color;
+            const titlePos = design.title.position;
+            const bodyPos = design.body.position;
+            const imgPos = design.image.position;
+
+            let shapesSVG = '';
+            for (const shape of design.shapes || []) {
+                const x = shape.position.x * W;
+                const y = shape.position.y * H;
+                const w = shape.position.w * W;
+                const h = shape.position.h * H;
+                const fill = shape.color || shape.gradient?.color_start || '#888';
+
+                if (shape.type === 'rectangle') {
+                    shapesSVG += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" opacity="0.85"/>`;
+                } else if (shape.type === 'oval') {
+                    shapesSVG += `<ellipse cx="${x+w/2}" cy="${y+h/2}" rx="${w/2}" ry="${h/2}" fill="${fill}" opacity="0.85"/>`;
+                } else if (shape.type === 'right_triangle') {
+                    shapesSVG += `<polygon points="${x},${y} ${x+w},${y+h} ${x},${y+h}" fill="${fill}" opacity="0.85"/>`;
+                }
+            }
+
+            const titleColor = design.title.font_color;
+            const bodyColor = design.body.font_color;
+
+            return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+                <rect width="${W}" height="${H}" fill="${bg}"/>
+                ${shapesSVG}
+                <rect x="${titlePos.x*W}" y="${titlePos.y*H}" width="${titlePos.w*W}" height="${titlePos.h*H*0.4}"
+                      fill="${titleColor}" opacity="0.8" rx="2"/>
+                ${[0,1,2].map(i => `<rect x="${bodyPos.x*W}" y="${bodyPos.y*H + i*10}" width="${bodyPos.w*W*(0.9-i*0.1)}" height="5"
+                      fill="${bodyColor}" opacity="0.4" rx="1"/>`).join('')}
+                <rect x="${imgPos.x*W}" y="${imgPos.y*H}" width="${imgPos.w*W}" height="${imgPos.h*H}"
+                      fill="#888" opacity="0.2" rx="3"/>
+                <text x="${imgPos.x*W + imgPos.w*W/2}" y="${imgPos.y*H + imgPos.h*H/2}"
+                      text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${bodyColor}" opacity="0.4">🖼</text>
+            </svg>`;
+        }
+
+        async function fetchDesignSuggestions(slides, provider) {
+            try {
+                const resp = await fetch(`${API_BASE}/api/suggest-design`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ slides, provider })
+                });
+                return resp.ok ? resp.json() : null;
+            } catch {
+                return null;
+            }
+        }
+
+        function showDesignModal(designs) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('design-modal');
+                const cardsContainer = document.getElementById('design-cards');
+                cardsContainer.innerHTML = '';
+
+                window._designResolve = resolve;
+
+                for (const design of designs) {
+                    const card = document.createElement('div');
+                    card.style.cssText = 'border:1px solid #e0e0e0;border-radius:8px;padding:15px;text-align:center;display:flex;flex-direction:column;gap:10px;';
+                    card.innerHTML = `
+                        <div style="background:#f9f9f9;border-radius:6px;padding:8px;display:flex;justify-content:center;">
+                            ${renderDesignSVG(design)}
+                        </div>
+                        <strong style="font-size:15px;color:#333;">${design.name || 'Дизайн'}</strong>
+                        <p style="font-size:12px;color:#888;font-style:italic;margin:0;">${design.rationale || ''}</p>
+                        <button class="btn-primary" style="padding:8px 16px;font-size:14px;margin-top:auto;">Обрати</button>
+                    `;
+                    card.querySelector('button').addEventListener('click', () => {
+                        modal.style.display = 'none';
+                        window._designResolve(design);
+                    });
+                    cardsContainer.appendChild(card);
+                }
+
+                modal.style.display = 'block';
+            });
+        }
+
+        function closeDesignModal() {
+            const modal = document.getElementById('design-modal');
+            modal.style.display = 'none';
+            if (window._designResolve) {
+                window._designResolve(null);
+                window._designResolve = null;
+            }
+        }
+
         // Navigate to home page
         function goToHome() {
             window.location.href = '/';

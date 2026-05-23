@@ -116,6 +116,48 @@ def _sse_event(event_type, data):
     return f"data: {payload}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# Валідація та автокорекція зон дизайну
+# ---------------------------------------------------------------------------
+
+def _rects_overlap(a, b):
+    return not (
+        a['x'] + a['w'] <= b['x'] or
+        b['x'] + b['w'] <= a['x'] or
+        a['y'] + a['h'] <= b['y'] or
+        b['y'] + b['h'] <= a['y']
+    )
+
+
+def _resolve_overlap(fixed, moving):
+    gap_y = (fixed['y'] + fixed['h']) - moving['y']
+    gap_x = (fixed['x'] + fixed['w']) - moving['x']
+    new = dict(moving)
+    if abs(gap_y) <= abs(gap_x):
+        new['y'] = min(fixed['y'] + fixed['h'] + 0.01, 1.0 - moving['h'])
+    else:
+        new['x'] = min(fixed['x'] + fixed['w'] + 0.01, 1.0 - moving['w'])
+    new['x'] = max(0.0, min(new['x'], 1.0 - new['w']))
+    new['y'] = max(0.0, min(new['y'], 1.0 - new['h']))
+    return new
+
+
+def _validate_and_fix_zones(design):
+    zones = ['title', 'body', 'image']
+    conflicts_log = []
+    was_fixed = False
+    for i in range(len(zones)):
+        for j in range(i + 1, len(zones)):
+            a_key, b_key = zones[i], zones[j]
+            a = design[a_key]['position']
+            b = design[b_key]['position']
+            if _rects_overlap(a, b):
+                conflicts_log.append(f"{a_key} ↔ {b_key}")
+                design[b_key]['position'] = _resolve_overlap(a, b)
+                was_fixed = True
+    return design, was_fixed, conflicts_log
+
+
 @pptx_generator_bp.route('/')
 @login_required
 def index():
@@ -166,25 +208,31 @@ def generate_pptx():
             yield _sse_event('status', {'step': 'parse', 'message': 'Парсинг JSON...'})
 
             total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+            design_config = None
 
             # Parse JSON
             try:
-                data = json.loads(raw_data)
+                parsed = json.loads(raw_data)
             except json.JSONDecodeError:
                 yield _sse_event('status', {'step': 'llm_fix', 'message': 'JSON некоректний, виправляю через LLM...'})
-                data, tokens = fix_json_with_llm(raw_data, provider=image_provider)
-
+                parsed, tokens = fix_json_with_llm(raw_data, provider=image_provider)
                 if tokens:
                     total_tokens['input_tokens'] += tokens.get('input_tokens', 0)
                     total_tokens['output_tokens'] += tokens.get('output_tokens', 0)
                     total_tokens['total_tokens'] += tokens.get('total_tokens', 0)
-
-                if data is None:
+                if parsed is None:
                     yield _sse_event('error', {'message': 'Invalid JSON and LLM fix failed.'})
                     return
 
-            if not isinstance(data, list):
-                yield _sse_event('error', {'message': 'Data must be an array of slide objects'})
+            # Підтримка нового формату: {"slides": [...], "design_config": {...}}
+            # та старого формату: [slide, slide, ...]
+            if isinstance(parsed, dict) and 'slides' in parsed:
+                data = parsed['slides']
+                design_config = parsed.get('design_config')
+            elif isinstance(parsed, list):
+                data = parsed
+            else:
+                yield _sse_event('error', {'message': 'Data must be an array of slide objects or {slides: [...], design_config: ...}'})
                 return
 
             # Validate slides
@@ -296,7 +344,7 @@ def generate_pptx():
             output_filename = f"presentation_{uuid.uuid4().hex[:8]}.pptx"
             output_path = os.path.join(temp_dir, output_filename)
 
-            create_presentation(output_path, slides_with_images, images_dir)
+            create_presentation(output_path, slides_with_images, images_dir, design_config=design_config)
 
             logger.info(f"Generated presentation: {output_path}")
 
@@ -329,6 +377,196 @@ def generate_pptx():
         }
     )
 
+
+# ---------------------------------------------------------------------------
+# 1.5 Дизайн: пропозиція дизайну через LLM
+# ---------------------------------------------------------------------------
+
+DESIGN_SYSTEM_PROMPT = """Ти — креативний дизайнер PowerPoint презентацій. Генеруєш параметри дизайну у форматі JSON.
+Повертай ТІЛЬКИ валідний JSON масив з 3 об'єктами. Без пояснень, без markdown, без ```json."""
+
+
+DESIGN_USER_PROMPT = """Проаналізуй тему та зміст слайдів і запропонуй 3 різних дизайни.
+
+СЛАЙДИ:
+{slides_summary}
+
+ВИМОГИ ДО 3 ВАРІАНТІВ:
+- Варіант 1: світла схема (invert: false), стримана
+- Варіант 2: темна схема (invert: true), контрастна
+- Варіант 3: твій вибір — підходить до теми, можеш бути сміливим
+
+Кожен варіант має СУТТЄВО відрізнятися від інших:
+різний фон, різні позиції фігур, різна типографіка, різне розміщення тексту і зображення.
+
+ЗАОХОЧУЄТЬСЯ (використовуй як натхнення, не копіюй):
+- заголовок знизу слайду, великий шрифт — тіло і зображення займають верхню частину
+- вузька вертикальна смуга тексту зліва (w: 0.30), велике зображення справа
+- темний трикутник або овал у куті займає третину слайду, текст накладається поверх
+- зображення зверху (y: 0.05), заголовок і текст знизу (y > 0.55)
+- два тонких прямокутники як рамка (зверху і знизу) замість суцільного фону
+- заголовок по центру (alignment: center), великий font_size (38-44), тіло дрібніше (16-18)
+- фігура-акцент займає всю ліву половину (w: 0.45), текст і зображення справа
+
+ОБМЕЖЕННЯ:
+- Координати position: x, y, w, h — від 0.0 до 1.0 (частка від розміру слайду)
+- Слайд 16:9, тому h=1.0 при w=0.5 — це висока вертикальна смуга, враховуй пропорції
+- Зони title, body, image НЕ перекриваються між собою — перевір координати
+- Фігури (shapes) мають z_order=0..1, текстові зони завжди поверх фігур
+- font_family — тільки: Calibri, Arial, Georgia, Trebuchet MS, Verdana, Times New Roman, Tahoma
+- font_size для title: 24-44, для body: 14-26
+- shapes: від 1 до 4 фігур (rectangle, oval, right_triangle)
+- Якщо є слайди з content_type "table" або "chart" — додай table_style / chart_style
+
+ФОРМАТ ВІДПОВІДІ (JSON масив з 3 об'єктів):
+[
+  {{
+    "id": "...",
+    "name": "...",
+    "rationale": "...",
+    "global": {{ "background_color": "...", "invert": true/false, "font_family": "...", "mirror_even_slides": true/false }},
+    "title": {{ "font_size": N, "font_bold": true/false, "font_color": "...", "alignment": "left/center/right", "position": {{"x":N,"y":N,"w":N,"h":N}} }},
+    "body": {{ "font_size": N, "font_bold": false, "font_color": "...", "alignment": "left/center/right", "position": {{"x":N,"y":N,"w":N,"h":N}} }},
+    "image": {{ "position": {{"x":N,"y":N,"w":N,"h":N}} }},
+    "shapes": [ {{ "type": "...", "position": {{"x":N,"y":N,"w":N,"h":N}}, "color": "..." or null, "gradient": {{"angle":N,"color_start":"...","color_end":"..."}} or null, "z_order": N }} ],
+    "table_style": {{ ... }} or null,
+    "chart_style": {{ ... }} or null
+  }}
+]
+"""
+
+
+@pptx_generator_bp.route('/api/suggest-design', methods=['POST'])
+@login_required
+def suggest_design():
+    """Generate 3 design suggestions based on slide content."""
+    try:
+        body = request.get_json(force=True)
+        if not body:
+            return jsonify({'error': 'No data provided'}), 400
+
+        slides = body.get('slides', [])
+        provider = body.get('provider', 'google').lower()
+        if provider not in ['google', 'openai']:
+            provider = 'google'
+
+        if not slides:
+            return jsonify({'error': 'No slides provided'}), 400
+
+        slides_summary_lines = []
+        for i, slide in enumerate(slides):
+            title = slide.get('title', '')
+            body_text = slide.get('body', '')[:200]
+            content_type = slide.get('content_type', 'text')
+            ct_label = f"[{content_type}]" if content_type != 'text' else ""
+            slides_summary_lines.append(f"Слайд {i + 1}: {title} {ct_label}\n{body_text}")
+
+        slides_summary = '\n\n'.join(slides_summary_lines)
+        user_prompt = DESIGN_USER_PROMPT.format(slides_summary=slides_summary)
+
+        designs = None
+        tokens_used = None
+
+        for attempt in range(2):
+            try:
+                if provider == 'openai':
+                    api_key = os.getenv('OPENAI_API_KEY')
+                    if not api_key:
+                        return jsonify({'error': 'OPENAI_API_KEY not set'}), 500
+
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
+
+                    response = client.chat.completions.create(
+                        model=OPENAI_TEXT_MODEL,
+                        messages=[
+                            {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                            {"role": "user", "content": user_prompt}
+                        ]
+                    )
+
+                    result_text = response.choices[0].message.content.strip()
+
+                    try:
+                        if response.usage:
+                            tokens_used = {
+                                'input_tokens': response.usage.prompt_tokens,
+                                'output_tokens': response.usage.completion_tokens,
+                                'total_tokens': response.usage.total_tokens
+                            }
+                    except Exception:
+                        pass
+
+                else:
+                    api_key = os.getenv('GEMINI_API_KEY')
+                    if not api_key:
+                        return jsonify({'error': 'GEMINI_API_KEY not set'}), 500
+
+                    from google import genai
+                    from google.genai import types
+                    client = genai.Client(api_key=api_key)
+
+                    full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
+                    response = client.models.generate_content(
+                        model=GEMINI_TEXT_MODEL,
+                        contents=full_prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.4,
+                        )
+                    )
+
+                    result_text = response.text.strip()
+
+                    try:
+                        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                            tokens_used = {
+                                'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
+                                'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
+                                'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
+                            }
+                    except Exception:
+                        pass
+
+                start = result_text.find('[')
+                end = result_text.rfind(']')
+                if start != -1 and end != -1 and end > start:
+                    result_text = result_text[start:end + 1]
+                if '```json' in result_text:
+                    result_text = result_text.split('```json', 1)[1]
+                if '```' in result_text:
+                    result_text = result_text.rsplit('```', 1)[0]
+                result_text = result_text.strip()
+
+                designs = json.loads(result_text)
+                if isinstance(designs, list) and len(designs) == 3:
+                    break
+                else:
+                    designs = None
+                    logger.warning(f"LLM suggested design: expected array of 3, got {type(designs)}")
+            except Exception as e:
+                logger.warning(f"Suggest design attempt {attempt + 1} failed: {e}")
+                designs = None
+
+        if not designs:
+            return jsonify({'error': 'Failed to generate design suggestions', 'designs': []}), 200
+
+        fixed_designs = []
+        for design in designs:
+            design, was_fixed, conflicts = _validate_and_fix_zones(design)
+            if was_fixed:
+                logger.warning(f"Design '{design.get('id', '?')}': auto-fixed overlaps: {conflicts}")
+            fixed_designs.append(design)
+
+        return jsonify({
+            'designs': fixed_designs,
+            'tokens': tokens_used or {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+        })
+
+    except Exception as e:
+        logger.error(f"Suggest design error: {e}", exc_info=True)
+        return jsonify({'error': str(e), 'designs': []}), 200
+
+
 # 2. Повертає розпарсений JSON масив або None
 def fix_json_with_llm(raw_text, provider='google'):
     """
@@ -349,8 +587,14 @@ def fix_json_with_llm(raw_text, provider='google'):
 - title: назва слайду (обов'язково)
 - body: основний текст слайду (обов'язково)
 - image_description: опис ілюстрації для генерації (опціонально)
+- content_type: тип вмісту (опціонально):
+  * "text" — звичайний текст (за замовчуванням)
+  * "table" — body містить табличні дані у вигляді markdown-таблиці або CSV
+  * "chart" — body містить числові дані для діаграми (формат: "Категорія: значення")
 
 ВИМОГИ:
+- Якщо у вхідному тексті є табличні дані (стовпці, ряди чисел) — створи слайд з content_type: "table", body у форматі markdown-таблиці
+- Якщо у вхідному тексті є числові дані для порівняння (категорія → значення) — створи слайд з content_type: "chart", body у форматі "Категорія: значення"
 - Поверни ТІЛЬКИ JSON масив, без додаткових пояснень
 - Якщо текст не має чіткої структури слайдів — розділи його логічно на 3-5 слайдів
 - Якщо є заголовки/підрозділи — використай їх як title

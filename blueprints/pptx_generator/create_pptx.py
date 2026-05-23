@@ -3,23 +3,34 @@ from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.chart import XL_CHART_TYPE
+from pptx.chart.data import CategoryChartData
 from datetime import datetime
 import os
 import random
 import math
+import re
+
+
+def _hex_to_rgb(hex_color):
+    """Convert hex color string to RGBColor."""
+    hex_color = hex_color.lstrip('#')
+    return RGBColor(int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
 
 # 4. Створення презентації
-def create_presentation(filename, slides_data, images_dir=None):
+def create_presentation(filename, slides_data, images_dir=None, design_config=None):
     """
     Створення PowerPoint презентації з JSON даних.
-    
+
     Args:
         filename: шлях до вихідного файлу .pptx
         slides_data: список словників з ключами:
             - title: назва слайду
             - body: основний текст
             - image_description: опис ілюстрації (опціонально)
+            - content_type: "text", "table", "chart" (опціонально)
         images_dir: папка з згенерованими зображеннями (опціонально)
+        design_config: об'єкт дизайну (опціонально), якщо None — випадковий дизайн
     """
     prs = Presentation()
     
@@ -268,18 +279,23 @@ def create_presentation(filename, slides_data, images_dir=None):
         dots = '.' * max(0, dots_needed)
         p.text = f"{slide_title} {dots} {page_number}"
     
-    # Content slides
+# Content slides
     slide_count = 0
     for slide_data in slides_data:
         title_text = slide_data.get('title', '')
         body_text = slide_data.get('body', '')
         image_description = slide_data.get('image_description', '')
         image_path = slide_data.get('image_path', '')
-        
+        content_type = slide_data.get('content_type', 'text')
+
         # Using empty layout (6) for full control
         slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(slide_layout)
         slide_count += 1
+
+        if design_config:
+            _apply_design_config(prs, slide, slide_data, design_config, slide_count, images_dir)
+            continue
         
         # Apply background design based on chosen type
         if design_type == 'rectangle':
@@ -782,3 +798,279 @@ def _add_thin_frame(slide, slide_width, slide_height, color1, color2):
     fill.solid()
     fill.fore_color.rgb = color1
     _lock_shape(right)
+
+
+def _apply_design_config(prs, slide, slide_data, design_config, slide_index, images_dir):
+    """
+    Apply design config to a slide: background, shapes, title, body, image.
+    """
+    slide_width = prs.slide_width
+    slide_height = prs.slide_height
+    global_cfg = design_config['global']
+    mirror = global_cfg.get('mirror_even_slides', False)
+    is_even = (slide_index % 2 == 0)
+
+    bg_color = global_cfg['background_color']
+    bg_shape = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, 0, 0, slide_width, slide_height
+    )
+    bg_shape.z_order = 0
+    bg_shape.line.fill.background()
+    bg_fill = bg_shape.fill
+    bg_fill.solid()
+    bg_fill.fore_color.rgb = _hex_to_rgb(bg_color)
+
+    def mirror_x(pos):
+        if mirror and is_even:
+            return 1.0 - pos['x'] - pos['w']
+        return pos['x']
+
+    def to_emu(pos):
+        x = int(mirror_x(pos) * slide_width)
+        y = int(pos['y'] * slide_height)
+        w = int(pos['w'] * slide_width)
+        h = int(pos['h'] * slide_height)
+        return x, y, w, h
+
+    shapes = design_config.get('shapes', [])
+    shapes.sort(key=lambda s: s.get('z_order', 0))
+    for shape in shapes:
+        sp_pos = shape['position']
+        if mirror and is_even:
+            sp_x = int((1.0 - sp_pos['x'] - sp_pos['w']) * slide_width)
+        else:
+            sp_x = int(sp_pos['x'] * slide_width)
+        sp_y = int(sp_pos['y'] * slide_height)
+        sp_w = int(sp_pos['w'] * slide_width)
+        sp_h = int(sp_pos['h'] * slide_height)
+
+        shape_type_map = {
+            'rectangle': MSO_SHAPE.RECTANGLE,
+            'oval': MSO_SHAPE.OVAL,
+            'right_triangle': MSO_SHAPE.RIGHT_TRIANGLE,
+        }
+        mso_type = shape_type_map.get(shape['type'], MSO_SHAPE.RECTANGLE)
+        sp = slide.shapes.add_shape(mso_type, sp_x, sp_y, sp_w, sp_h)
+        sp.z_order = shape.get('z_order', 0)
+        sp.line.fill.background()
+
+        color = shape.get('color')
+        gradient = shape.get('gradient')
+        if color:
+            sp.fill.solid()
+            sp.fill.fore_color.rgb = _hex_to_rgb(color)
+        elif gradient:
+            sp.fill.gradient()
+            sp.fill.gradient_angle = gradient['angle']
+            sp.fill.gradient_stops[0].color.rgb = _hex_to_rgb(gradient['color_start'])
+            sp.fill.gradient_stops[1].color.rgb = _hex_to_rgb(gradient['color_end'])
+        else:
+            sp.fill.background()
+
+    title_cfg = design_config['title']
+    title_pos = dict(title_cfg['position'])
+    if title_pos['w'] < 0.90:
+        title_pos['w'] = 0.90
+        title_pos['x'] = 0.05
+    tx, ty, tw, th = to_emu(title_pos)
+    title_box = slide.shapes.add_textbox(tx, ty, tw, th)
+    title_frame = title_box.text_frame
+    title_frame.word_wrap = False
+    title_frame.text = slide_data.get('title', '')
+    title_frame.margin_left = 0
+    title_frame.margin_right = 0
+    title_frame.margin_top = 0
+    title_frame.margin_bottom = 0
+    title_frame.auto_size = 1
+    title_para = title_frame.paragraphs[0]
+    title_para.font.size = Pt(title_cfg['font_size'])
+    title_para.font.bold = title_cfg.get('font_bold', False)
+    title_para.font.color.rgb = _hex_to_rgb(title_cfg['font_color'])
+    title_para.font.name = global_cfg.get('font_family', 'Calibri')
+    alignment_map = {'left': 1, 'center': 2, 'right': 3}
+    title_para.alignment = alignment_map.get(title_cfg.get('alignment', 'left'), 1)
+
+    body_cfg = design_config['body']
+    bx, by, bw, bh = to_emu(body_cfg['position'])
+    content_type = slide_data.get('content_type', 'text')
+    body_text = slide_data.get('body', '')
+
+    if content_type == 'table' and body_text:
+        table_style = design_config.get('table_style')
+        _render_table(slide, body_text, table_style, (bx, by, bw, bh))
+    elif content_type == 'chart' and body_text:
+        chart_style = design_config.get('chart_style')
+        _render_chart(slide, body_text, chart_style, (bx, by, bw, bh))
+    else:
+        body_box = slide.shapes.add_textbox(bx, by, bw, bh)
+        body_frame = body_box.text_frame
+        body_frame.word_wrap = True
+        body_frame.text = body_text
+        body_frame.margin_left = 0
+        body_frame.margin_right = 0
+        body_frame.margin_top = 0
+        body_frame.margin_bottom = 0
+        body_para = body_frame.paragraphs[0]
+        body_para.font.size = Pt(body_cfg['font_size'])
+        body_para.font.bold = body_cfg.get('font_bold', False)
+        body_para.font.color.rgb = _hex_to_rgb(body_cfg['font_color'])
+        body_para.font.name = global_cfg.get('font_family', 'Calibri')
+        body_para.alignment = alignment_map.get(body_cfg.get('alignment', 'left'), 1)
+
+    image_cfg = design_config.get('image')
+    if image_cfg:
+        img_x, img_y, img_w, img_h = to_emu(image_cfg['position'])
+        actual_image_path = slide_data.get('image_path', '')
+        if actual_image_path and os.path.exists(actual_image_path):
+            from PIL import Image as PILImage
+            with PILImage.open(actual_image_path) as img:
+                orig_w, orig_h = img.size
+                aspect = orig_h / orig_w
+                pic_w = img_w
+                pic_h = int(pic_w * aspect)
+                if pic_h > img_h:
+                    pic_h = img_h
+                    pic_w = int(pic_h / aspect)
+                img_y_centered = img_y + (img_h - pic_h) // 2
+                slide.shapes.add_picture(actual_image_path, img_x, img_y_centered, width=pic_w, height=pic_h)
+        elif slide_data.get('image_description', ''):
+            _add_image_placeholder(slide, img_x, img_y, img_w, img_h, slide_data.get('image_description', ''))
+
+
+def _render_table(slide, body_text, table_style, position):
+    bx, by, bw, bh = position
+    rows_data = [line.strip() for line in body_text.strip().split('\n') if line.strip()]
+    if not rows_data:
+        return
+    header = [c.strip() for c in rows_data[0].strip('|').split('|')]
+    data_rows = []
+    for row in rows_data[1:]:
+        if row.startswith('|') or '|' in row:
+            cells = [c.strip() for c in row.strip('|').split('|')]
+            data_rows.append(cells)
+    if not data_rows:
+        return
+
+    n_rows = len(data_rows) + 1
+    n_cols = len(header)
+    table_shape = slide.shapes.add_table(n_rows, n_cols, bx, by, bw, bh)
+    table = table_shape.table
+
+    if not table_style:
+        table_style = {}
+
+    header_bg = table_style.get('header_bg', '#1976D2')
+    header_font_color = table_style.get('header_font_color', '#FFFFFF')
+    row_bg_odd = table_style.get('row_bg_odd', '#F5F5F5')
+    row_bg_even = table_style.get('row_bg_even', '#FFFFFF')
+    cell_font_color = table_style.get('cell_font_color', '#333333')
+    font_size = table_style.get('font_size', 14)
+    border_color = table_style.get('border_color', '#CCCCCC')
+    border_rgb = _hex_to_rgb(border_color)
+
+    for col_idx, cell_text in enumerate(header):
+        cell = table.cell(0, col_idx)
+        cell.text = cell_text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _hex_to_rgb(header_bg)
+        for para in cell.text_frame.paragraphs:
+            para.font.size = Pt(font_size)
+            para.font.bold = True
+            para.font.color.rgb = _hex_to_rgb(header_font_color)
+            para.font.name = 'Calibri'
+
+    for row_idx, row_cells in enumerate(data_rows):
+        for col_idx, cell_text in enumerate(row_cells):
+            if col_idx >= n_cols:
+                break
+            cell = table.cell(row_idx + 1, col_idx)
+            cell.text = cell_text
+            cell.fill.solid()
+            bg = row_bg_odd if (row_idx % 2 == 0) else row_bg_even
+            cell.fill.fore_color.rgb = _hex_to_rgb(bg)
+            for para in cell.text_frame.paragraphs:
+                para.font.size = Pt(font_size)
+                para.font.color.rgb = _hex_to_rgb(cell_font_color)
+                para.font.name = 'Calibri'
+
+    for row_idx in range(n_rows):
+        for col_idx in range(n_cols):
+            cell = table.cell(row_idx, col_idx)
+            _set_cell_border(cell, border_rgb)
+
+
+def _set_cell_border(cell, color):
+    from lxml import etree
+    from pptx.oxml.ns import qn, nsmap
+    tc = cell._tc
+    tcPr = tc.find(qn('a:tcPr'))
+    if tcPr is None:
+        tcPr = etree.SubElement(tc, qn('a:tcPr'))
+    for tag in ('lnL', 'lnR', 'lnT', 'lnB'):
+        ln = tcPr.find(qn(f'a:{tag}'))
+        if ln is None:
+            ln = etree.SubElement(tcPr, qn(f'a:{tag}'))
+        ln.set('w', '6350')
+        solidFill = ln.find(qn('a:solidFill'))
+        if solidFill is None:
+            solidFill = etree.SubElement(ln, qn('a:solidFill'))
+        else:
+            for child in list(solidFill):
+                solidFill.remove(child)
+        srgbClr = etree.SubElement(solidFill, qn('a:srgbClr'))
+        srgbClr.set('val', '{:02X}{:02X}{:02X}'.format(color[0], color[1], color[2]))
+
+
+def _render_chart(slide, body_text, chart_style, position):
+    bx, by, bw, bh = position
+    if not chart_style:
+        chart_style = {}
+
+    chart_type_map = {
+        'bar': XL_CHART_TYPE.BAR_CLUSTERED,
+        'line': XL_CHART_TYPE.LINE,
+        'pie': XL_CHART_TYPE.PIE,
+    }
+    chart_type = chart_type_map.get(chart_style.get('type', 'bar'), XL_CHART_TYPE.BAR_CLUSTERED)
+
+    lines = [line.strip() for line in body_text.strip().split('\n') if line.strip()]
+    categories = []
+    values = []
+    for line in lines:
+        match = re.match(r'^(.+?):\s*([\d.]+)$', line)
+        if match:
+            categories.append(match.group(1).strip())
+            values.append(float(match.group(2)))
+
+    if not categories:
+        return
+
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+    chart_data.add_series('Series 1', values)
+
+    chart_frame = slide.shapes.add_chart(chart_type, bx, by, bw, bh, chart_data).chart
+
+    colors = chart_style.get('colors', [])
+    if colors:
+        for i, series in enumerate(chart_frame.series):
+            if i < len(colors):
+                series.format.fill.solid()
+                series.format.fill.fore_color.rgb = _hex_to_rgb(colors[i])
+
+    bg_color = chart_style.get('background')
+    if bg_color:
+        chart_frame.backdrop.fill.solid()
+        chart_frame.backdrop.fill.fore_color.rgb = _hex_to_rgb(bg_color)
+
+    font_color = chart_style.get('font_color')
+    if font_color:
+        rgb_font = _hex_to_rgb(font_color)
+        try:
+            chart_frame.category_axis.tick_labels.font.color.rgb = rgb_font
+        except Exception:
+            pass
+        try:
+            chart_frame.value_axis.tick_labels.font.color.rgb = rgb_font
+        except Exception:
+            pass

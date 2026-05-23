@@ -78,6 +78,12 @@ def get_moodle_session(
     os.environ.setdefault('DISPLAY', ':10')
 
     try:
+        # Очищаємо SingletonLock якщо залишився від попереднього запуску
+        singleton_lock = os.path.join(USER_DATA_DIR, "SingletonLock")
+        if os.path.exists(singleton_lock):
+            os.remove(singleton_lock)
+            logger.debug("Moodle session: видалено SingletonLock")
+
         with sync_playwright() as p:
             browser = p.chromium.launch_persistent_context(
                 USER_DATA_DIR,

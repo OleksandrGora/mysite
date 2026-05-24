@@ -142,10 +142,50 @@ def _resolve_overlap(fixed, moving):
     return new
 
 
+def _fix_image_aspect_ratio(design, slide_ratio=16.0/9.0):
+    if 'image' not in design or 'position' not in design['image']:
+        return
+    pos = design['image']['position']
+    w = pos.get('w', 0)
+    h = pos.get('h', 0)
+    if w <= 0 or h <= 0:
+        return
+
+    current_aspect = (h / w) / slide_ratio
+    target_aspect = 1.1
+
+    if abs(current_aspect - target_aspect) < 0.15:
+        return
+
+    new_h = target_aspect * w * slide_ratio
+    if pos['y'] + new_h <= 1.0:
+        pos['h'] = new_h
+        return
+
+    new_w = h / (target_aspect * slide_ratio)
+    if pos['x'] + new_w <= 1.0:
+        pos['w'] = new_w
+
+
 def _validate_and_fix_zones(design):
     zones = ['title', 'body', 'image']
     conflicts_log = []
     was_fixed = False
+
+    orig_pos = {}
+    for key in ['image']:
+        if key in design and 'position' in design[key]:
+            orig_pos[key] = dict(design[key]['position'])
+
+    _fix_image_aspect_ratio(design)
+
+    for key, orig in orig_pos.items():
+        if key in design and 'position' in design[key]:
+            cur = design[key]['position']
+            if cur['w'] != orig['w'] or cur['h'] != orig['h']:
+                was_fixed = True
+                conflicts_log.append(f"{key} aspect ratio adjusted ({orig['w']:.3f}x{orig['h']:.3f} → {cur['w']:.3f}x{cur['h']:.3f})")
+
     for i in range(len(zones)):
         for j in range(i + 1, len(zones)):
             a_key, b_key = zones[i], zones[j]
@@ -155,6 +195,7 @@ def _validate_and_fix_zones(design):
                 conflicts_log.append(f"{a_key} ↔ {b_key}")
                 design[b_key]['position'] = _resolve_overlap(a, b)
                 was_fixed = True
+
     return design, was_fixed, conflicts_log
 
 
@@ -382,6 +423,198 @@ def generate_pptx():
 # 1.5 Дизайн: пропозиція дизайну через LLM
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Генерація випадкових дизайнів (як у традиційному workflow)
+# ---------------------------------------------------------------------------
+
+
+def _generate_random_design(design_index):
+    """Generate a random design config matching traditional workflow styles."""
+    import random
+
+    color_map = {
+        "light_pastels": [
+            ("#EBF5FF", "#E1F0FA"),
+            ("#EBFFF0", "#E1FAEB"),
+            ("#FAF0FF", "#F5EBFA"),
+            ("#FFF8EB", "#FAF5E6"),
+            ("#FFF0F5", "#FAEBF0"),
+            ("#F0FCFF", "#EBFAFC"),
+            ("#F5FFF5", "#F0FCF0"),
+            ("#FFFAF5", "#FCF5F0"),
+            ("#FFF8FC", "#FCF5FA"),
+            ("#F8FCFF", "#F5FAFC"),
+        ],
+        "title": ["#28283C", "#323232", "#3C283C", "#503228", "#283C32"],
+    }
+
+    bg_pair = random.choice(color_map["light_pastels"])
+    bg_color, _ = bg_pair
+    title_color_hex = random.choice(color_map["title"])
+
+    design_types = [
+        "rectangle", "circle", "sidebar", "header_bar",
+        "diagonal_split", "triangle_accents", "thin_frame"
+    ]
+    design_type = design_types[design_index % len(design_types)]
+
+    name_map = {
+        "rectangle": "Мінімалістичний",
+        "circle": "Акцентний",
+        "sidebar": "Бокова панель",
+        "header_bar": "Класичний",
+        "diagonal_split": "Динамічний",
+        "triangle_accents": "Технічний",
+        "thin_frame": "Рамковий",
+    }
+    shape_color_map = {
+        "rectangle": ["#3498DB", "#2ECC71", "#E74C3C", "#9B59B6", "#1ABC9C"],
+        "circle": ["#E74C3C", "#F39C12", "#1ABC9C", "#3498DB", "#9B59B6"],
+        "sidebar": ["#2C3E50", "#34495E", "#1A252F", "#2C3E50", "#16A085"],
+        "header_bar": ["#1B4F72", "#2C3E50", "#8E44AD", "#16A085", "#C0392B"],
+        "triangle_accents": ["#238636", "#1F6FEB", "#9B59B6", "#E67E22", "#E74C3C"],
+        "thin_frame": ["#3498DB", "#2ECC71", "#E74C3C", "#9B59B6", "#95A5A6"],
+    }
+    if design_type == "diagonal_split":
+        shape_colors = ["#9B59B6", "#3498DB", "#E74C3C", "#1ABC9C", "#F39C12"]
+    else:
+        shape_colors = shape_color_map.get(design_type, ["#3498DB"])
+
+    shape_color = random.choice(shape_colors)
+    title_align = random.choice(["left", "center"])
+
+    body_color = "#34495E" if not bg_color == "#FFFFFF" else "#2C3E50"
+
+    if design_type == "rectangle":
+        rect_layout = random.choice(["full", "left_half", "right_half"])
+        shapes = []
+        if rect_layout == "full":
+            shapes.append({"type": "rectangle", "position": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}, "color": shape_color, "z_order": 0})
+        elif rect_layout == "left_half":
+            shapes.append({"type": "rectangle", "position": {"x": 0.0, "y": 0.0, "w": 0.5, "h": 1.0}, "color": shape_color, "z_order": 0})
+        elif rect_layout == "right_half":
+            shapes.append({"type": "rectangle", "position": {"x": 0.5, "y": 0.0, "w": 0.5, "h": 1.0}, "color": shape_color, "z_order": 0})
+        title_pos = {"x": 0.05, "y": 0.05, "w": 0.9, "h": 0.15}
+        body_pos = {"x": 0.05, "y": 0.25, "w": 0.6, "h": 0.65}
+        img_pos = {"x": 0.65, "y": 0.2, "w": 0.3, "h": 0.6}
+
+    elif design_type == "circle":
+        corner = random.choice(["corner_top_left", "corner_top_right", "corner_bottom_left", "corner_bottom_right"])
+        circle_map = {
+            "corner_top_left": (0.0, 0.0),
+            "corner_top_right": (0.7, 0.0),
+            "corner_bottom_left": (0.0, 0.6),
+            "corner_bottom_right": (0.7, 0.6),
+        }
+        pos = circle_map[corner]
+        shapes = [
+            {"type": "oval", "position": {"x": pos[0], "y": pos[1], "w": 0.3, "h": 0.4}, "color": shape_color, "z_order": 0},
+        ]
+        title_pos = {"x": 0.05, "y": 0.05, "w": 0.9, "h": 0.15}
+        body_pos = {"x": 0.05, "y": 0.25, "w": 0.55, "h": 0.65}
+        img_pos = {"x": 0.65, "y": 0.25, "w": 0.3, "h": 0.6}
+
+    elif design_type == "sidebar":
+        side = random.choice(["sidebar_left", "sidebar_right"])
+        if side == "sidebar_left":
+            shapes = [{"type": "rectangle", "position": {"x": 0.0, "y": 0.0, "w": 0.18, "h": 1.0}, "color": shape_color, "z_order": 0}]
+            title_pos = {"x": 0.22, "y": 0.05, "w": 0.75, "h": 0.15}
+            body_pos = {"x": 0.22, "y": 0.25, "w": 0.5, "h": 0.65}
+            img_pos = {"x": 0.75, "y": 0.25, "w": 0.22, "h": 0.6}
+        else:
+            shapes = [{"type": "rectangle", "position": {"x": 0.82, "y": 0.0, "w": 0.18, "h": 1.0}, "color": shape_color, "z_order": 0}]
+            title_pos = {"x": 0.03, "y": 0.05, "w": 0.75, "h": 0.15}
+            body_pos = {"x": 0.03, "y": 0.25, "w": 0.5, "h": 0.65}
+            img_pos = {"x": 0.55, "y": 0.25, "w": 0.25, "h": 0.6}
+
+    elif design_type == "header_bar":
+        bar_pos = random.choice(["header_bar", "footer_bar"])
+        if bar_pos == "header_bar":
+            shapes = [{"type": "rectangle", "position": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 0.08}, "color": shape_color, "z_order": 0}]
+            title_pos = {"x": 0.05, "y": 0.12, "w": 0.9, "h": 0.13}
+        else:
+            shapes = [{"type": "rectangle", "position": {"x": 0.0, "y": 0.92, "w": 1.0, "h": 0.08}, "color": shape_color, "z_order": 0}]
+            title_pos = {"x": 0.05, "y": 0.05, "w": 0.9, "h": 0.15}
+        body_pos = {"x": 0.05, "y": 0.3, "w": 0.6, "h": 0.6}
+        img_pos = {"x": 0.68, "y": 0.3, "w": 0.28, "h": 0.55}
+
+    elif design_type == "diagonal_split":
+        shapes = [
+            {"type": "right_triangle", "position": {"x": 0.5, "y": 0.5, "w": 0.5, "h": 0.5}, "color": shape_color, "z_order": 0}
+        ]
+        title_pos = {"x": 0.05, "y": 0.05, "w": 0.5, "h": 0.15}
+        body_pos = {"x": 0.05, "y": 0.25, "w": 0.45, "h": 0.65}
+        img_pos = {"x": 0.55, "y": 0.2, "w": 0.4, "h": 0.6}
+
+    elif design_type == "triangle_accents":
+        shapes = [
+            {"type": "right_triangle", "position": {"x": 0.0, "y": 0.0, "w": 0.15, "h": 0.15}, "color": shape_color, "z_order": 0},
+            {"type": "right_triangle", "position": {"x": 0.85, "y": 0.85, "w": 0.15, "h": 0.15}, "color": shape_color, "z_order": 0},
+        ]
+        title_pos = {"x": 0.05, "y": 0.05, "w": 0.9, "h": 0.12}
+        body_pos = {"x": 0.05, "y": 0.22, "w": 0.55, "h": 0.7}
+        img_pos = {"x": 0.63, "y": 0.22, "w": 0.32, "h": 0.6}
+
+    elif design_type == "thin_frame":
+        shapes = [
+            {"type": "rectangle", "position": {"x": 0.02, "y": 0.02, "w": 0.96, "h": 0.005}, "color": shape_color, "z_order": 0},
+            {"type": "rectangle", "position": {"x": 0.02, "y": 0.975, "w": 0.96, "h": 0.005}, "color": shape_color, "z_order": 0},
+            {"type": "rectangle", "position": {"x": 0.02, "y": 0.02, "w": 0.005, "h": 0.96}, "color": shape_color, "z_order": 0},
+            {"type": "rectangle", "position": {"x": 0.975, "y": 0.02, "w": 0.005, "h": 0.96}, "color": shape_color, "z_order": 0},
+        ]
+        title_pos = {"x": 0.08, "y": 0.08, "w": 0.84, "h": 0.12}
+        body_pos = {"x": 0.08, "y": 0.25, "w": 0.84, "h": 0.65}
+        img_pos = {"x": 0.08, "y": 0.25, "w": 0.84, "h": 0.65}
+
+    font_family = random.choice(["Calibri", "Arial", "Segoe UI", "Verdana", "Tahoma", "Candara", "Century Gothic", "Franklin Gothic Medium"])
+    # Choose font_size more carefully to avoid overlap
+    title_font_size = random.choice([28, 30, 32, 34, 36])
+    body_font_size = random.choice([16, 18, 20])
+
+    return {
+        "id": f"random_{design_index + 1}",
+        "name": f"{name_map.get(design_type, 'Дизайн')} #{design_index + 1}",
+        "global": {
+            "background_color": bg_color,
+            "invert": False,
+            "font_family": font_family,
+            "mirror_even_slides": random.choice([True, False]),
+        },
+        "title": {
+            "font_size": title_font_size,
+            "font_bold": True,
+            "font_color": title_color_hex,
+            "alignment": title_align,
+            "position": title_pos,
+        },
+        "body": {
+            "font_size": body_font_size,
+            "font_bold": False,
+            "font_color": body_color,
+            "alignment": "left",
+            "position": body_pos,
+        },
+        "image": {"position": img_pos},
+        "shapes": shapes,
+        "table_style": None,
+        "chart_style": None,
+    }
+
+
+@pptx_generator_bp.route('/api/random-designs', methods=['GET'])
+@login_required
+def random_designs():
+    """Return 3 randomly generated designs using traditional workflow logic."""
+    designs = [_generate_random_design(i) for i in range(3)]
+    for d in designs:
+        d, was_fixed, conflicts = _validate_and_fix_zones(d)
+        if was_fixed:
+            logger.warning(f"Random design '{d.get('id', '?')}': auto-fixed overlaps: {conflicts}")
+    return jsonify({
+        'designs': designs,
+        'tokens': {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+    })
+
 DESIGN_SYSTEM_PROMPT = """Ти — креативний дизайнер PowerPoint презентацій. Генеруєш параметри дизайну у форматі JSON.
 Повертай ТІЛЬКИ валідний JSON масив з 3 об'єктами. Без пояснень, без markdown, без ```json."""
 
@@ -413,7 +646,7 @@ DESIGN_USER_PROMPT = """Проаналізуй тему та зміст слай
 - Слайд 16:9, тому h=1.0 при w=0.5 — це висока вертикальна смуга, враховуй пропорції
 - Зони title, body, image НЕ перекриваються між собою — перевір координати
 - Фігури (shapes) мають z_order=0..1, текстові зони завжди поверх фігур
-- font_family — тільки: Calibri, Arial, Georgia, Trebuchet MS, Verdana, Times New Roman, Tahoma
+- font_family — тільки беззасічкові: Calibri, Arial, Segoe UI, Verdana, Tahoma, Candara, Century Gothic, Franklin Gothic Medium
 - font_size для title: 24-44, для body: 14-26
 - shapes: від 1 до 4 фігур (rectangle, oval, right_triangle)
 - Якщо є слайди з content_type "table" або "chart" — додай table_style / chart_style
@@ -423,7 +656,6 @@ DESIGN_USER_PROMPT = """Проаналізуй тему та зміст слай
   {{
     "id": "...",
     "name": "...",
-    "rationale": "...",
     "global": {{ "background_color": "...", "invert": true/false, "font_family": "...", "mirror_even_slides": true/false }},
     "title": {{ "font_size": N, "font_bold": true/false, "font_color": "...", "alignment": "left/center/right", "position": {{"x":N,"y":N,"w":N,"h":N}} }},
     "body": {{ "font_size": N, "font_bold": false, "font_color": "...", "alignment": "left/center/right", "position": {{"x":N,"y":N,"w":N,"h":N}} }},
@@ -616,6 +848,8 @@ def fix_json_with_llm(raw_text, provider='google'):
                 logger.warning("OPENAI_API_KEY not set, cannot fix JSON")
                 return None, None
 
+            logger.info(f"[PPTX] Виклик LLM (OpenAI/{OPENAI_TEXT_MODEL}) для виправлення JSON")
+
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
 
@@ -644,6 +878,8 @@ def fix_json_with_llm(raw_text, provider='google'):
             if not api_key:
                 logger.warning("GEMINI_API_KEY not set, cannot fix JSON")
                 return None, None
+
+            logger.info(f"[PPTX] Виклик LLM (Gemini/{GEMINI_TEXT_MODEL}) для виправлення JSON")
 
             from google import genai
             from google.genai import types

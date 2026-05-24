@@ -565,8 +565,8 @@
                         <input type="checkbox" id="generate-images">
                         Генерувати зображення
                     </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="suggest-design">
+                    <label class="checkbox-label" style="display:none;">
+                        <input type="checkbox" id="suggest-design" checked>
                         ✨ Запропонувати дизайн
                     </label>
                     <div class="token-display">
@@ -600,7 +600,7 @@
 
     <!-- Design Modal -->
     <div id="design-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;" onclick="if(event.target===this)closeDesignModal()">
-        <div style="background:white;margin:40px auto;max-width:900px;border-radius:12px;padding:30px;position:relative;">
+        <div style="background:white;margin:40px auto;max-width:1100px;border-radius:12px;padding:30px;position:relative;">
             <h2 style="margin-bottom:20px;text-align:center;">Оберіть дизайн</h2>
             <div id="design-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
             </div>
@@ -613,6 +613,57 @@
     <script>
         const API_BASE = '/pptx-generator';
         const STORAGE_KEY = 'pptx_generator_state';
+        const DESIGN_CACHE_KEY = 'pptx_design_cache';
+
+        // --- Design Cache (localStorage) ---
+        function getCurrentSlidesKey() {
+            const input = document.getElementById('json-input').value;
+            try {
+                const parsed = JSON.parse(input);
+                return JSON.stringify(parsed);
+            } catch {
+                return null;
+            }
+        }
+
+        function saveDesignCache(slides, designs) {
+            try {
+                const cache = {
+                    slides_json: JSON.stringify(slides),
+                    designs: designs,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(DESIGN_CACHE_KEY, JSON.stringify(cache));
+            } catch (e) {
+                console.error('Failed to save design cache:', e);
+            }
+        }
+
+        function loadDesignCache() {
+            try {
+                const raw = localStorage.getItem(DESIGN_CACHE_KEY);
+                if (!raw) return null;
+                const cache = JSON.parse(raw);
+                const currentKey = getCurrentSlidesKey();
+                if (!currentKey || cache.slides_json !== currentKey) return null;
+                return cache.designs;
+            } catch (e) {
+                console.error('Failed to load design cache:', e);
+                return null;
+            }
+        }
+
+        function clearDesignCache() {
+            try {
+                localStorage.removeItem(DESIGN_CACHE_KEY);
+            } catch (e) {
+                console.error('Failed to clear design cache:', e);
+            }
+        }
+
+        function hasDesignCache() {
+            return localStorage.getItem(DESIGN_CACHE_KEY) !== null;
+        }
 
         // Load saved state from localStorage
         function loadSavedState() {
@@ -661,19 +712,36 @@
             }
         }
 
+        let _isRevertingDesignCache = false;
+
         // Setup auto-save listeners
         const textarea = document.getElementById('json-input');
-        textarea.addEventListener('input', saveState);
+
+        textarea.addEventListener('input', function() {
+            if (_isRevertingDesignCache) return;
+            if (hasDesignCache()) {
+                const confirmed = confirm('Дані змінено. Інформація про дизайн (отримана від LLM) буде видалена. Продовжити?');
+                if (!confirmed) {
+                    _isRevertingDesignCache = true;
+                    this.value = this.dataset.lastValue || '';
+                    _isRevertingDesignCache = false;
+                    return;
+                }
+                clearDesignCache();
+            }
+            this.dataset.lastValue = this.value;
+            saveState();
+        });
         textarea.addEventListener('keyup', saveState);
         textarea.addEventListener('change', saveState);
         document.querySelectorAll('input[name="image-provider"]').forEach(radio => {
             radio.addEventListener('change', saveState);
         });
         document.getElementById('generate-images').addEventListener('change', saveState);
-        document.getElementById('suggest-design').addEventListener('change', saveState);
         window.addEventListener('beforeunload', saveState);
 
         loadSavedState();
+        textarea.dataset.lastValue = textarea.value;
 
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toast');
@@ -704,6 +772,15 @@
         document.getElementById('file-upload').addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (!file) return;
+            
+            if (hasDesignCache()) {
+                const confirmed = confirm('Дані змінено. Інформація про дизайн (отримана від LLM) буде видалена. Продовжити?');
+                if (!confirmed) {
+                    this.value = '';
+                    return;
+                }
+                clearDesignCache();
+            }
             
             if (file.name.endsWith('.docx')) {
                 const formData = new FormData();
@@ -757,56 +834,87 @@
 
             const provider = document.querySelector('input[name="image-provider"]:checked').value;
             const generateImages = document.getElementById('generate-images').checked;
-            const suggestDesign = document.getElementById('suggest-design').checked;
 
             let designConfig = null;
             let effectiveInput = input;
 
-            if (suggestDesign) {
-                let slides;
-                try {
-                    slides = JSON.parse(input);
-                } catch {
-                    showToast('Для пропозиції дизайну потрібен валідний JSON', 'error');
-                    return;
-                }
+            let slides;
+            try {
+                slides = JSON.parse(input);
+            } catch {
+                showToast('Для пропозиції дизайну потрібен валідний JSON', 'error');
+                return;
+            }
 
-                logClear();
+            logClear();
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Аналіз...';
+
+            // Step 1: Try to load cached LLM designs, or fetch new ones
+            let llmDesigns = loadDesignCache();
+            if (llmDesigns) {
+                logLine('♻ Використовую кешовані дизайни (LLM)', 'status');
+            } else {
                 logLine('▶ Аналізую тему, пропоную дизайни...');
                 statusText.textContent = 'Аналіз теми...';
-                btn.disabled = true;
-                btn.innerHTML = '<span class="loading"></span> Аналіз...';
-
                 const result = await fetchDesignSuggestions(slides, provider);
-
-                if (!result || !result.designs || !result.designs.length) {
-                    showToast('Не вдалось отримати варіанти дизайну. Продовжую з випадковим.', 'warning');
-                    logLine('⚠ Не вдалось отримати дизайни, буде випадковий', 'warning');
-                } else {
+                if (result && result.designs && result.designs.length) {
+                    llmDesigns = result.designs;
+                    saveDesignCache(slides, llmDesigns);
                     if (result.tokens && result.tokens.total_tokens) {
                         document.getElementById('token-count').textContent =
                             (parseInt(document.getElementById('token-count').textContent.replace(/\D/g,'')) + result.tokens.total_tokens).toLocaleString();
                     }
-                    designConfig = await showDesignModal(result.designs);
-                    if (designConfig === null) {
-                        statusText.textContent = 'Скасовано';
-                        btn.disabled = false;
-                        btn.innerHTML = '<span>+</span> Створити презентацію';
-                        logLine('✗ Користувач скасував вибір дизайну', 'warning');
-                        return;
-                    }
+                } else {
+                    logLine('⚠ LLM дизайни не отримано', 'warning');
                 }
-
-                effectiveInput = JSON.stringify({ slides, design_config: designConfig });
             }
+
+            // Step 2: Always fetch 3 random designs
+            statusText.textContent = 'Генерую випадкові дизайни...';
+            logLine('▶ Генерую випадкові дизайни...', 'status');
+            let randomDesigns = [];
+            try {
+                const randomResp = await fetch(`${API_BASE}/api/random-designs`);
+                if (randomResp.ok) {
+                    const randomResult = await randomResp.json();
+                    randomDesigns = randomResult.designs || [];
+                }
+            } catch (e) {
+                logLine('⚠ Помилка отримання випадкових дизайнів: ' + e.message, 'warning');
+            }
+
+            // Step 3: Merge: 3 LLM + 3 random = 6 designs
+            let allDesigns = [];
+            if (llmDesigns) {
+                allDesigns = allDesigns.concat(llmDesigns);
+            }
+            if (randomDesigns) {
+                allDesigns = allDesigns.concat(randomDesigns);
+            }
+
+            if (!allDesigns.length) {
+                showToast('Не вдалось отримати варіанти дизайну', 'warning');
+                logLine('⚠ Немає доступних дизайнів', 'warning');
+            } else {
+                logLine(`▶ Показано ${allDesigns.length} варіантів дизайну`, 'status');
+                statusText.textContent = 'Оберіть дизайн...';
+                designConfig = await showDesignModal(allDesigns);
+                if (designConfig === null) {
+                    statusText.textContent = 'Скасовано';
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>+</span> Створити презентацію';
+                    logLine('✗ Користувач скасував вибір дизайну', 'warning');
+                    return;
+                }
+            }
+
+            effectiveInput = JSON.stringify({ slides, design_config: designConfig });
 
             isGenerating = true;
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span> Генерую...';
             statusText.textContent = 'Запуск...';
-            if (!suggestDesign) {
-                logClear();
-            }
             logLine('▶ Запуск генерації...');
 
             try {
@@ -1002,7 +1110,7 @@
         }
         
         function renderDesignSVG(design) {
-            const W = 220, H = 140;
+            const W = 264, H = 168;
             const bg = design.global.background_color;
             const titlePos = design.title.position;
             const bodyPos = design.body.position;
@@ -1038,7 +1146,7 @@
                 <rect x="${imgPos.x*W}" y="${imgPos.y*H}" width="${imgPos.w*W}" height="${imgPos.h*H}"
                       fill="#888" opacity="0.2" rx="3"/>
                 <text x="${imgPos.x*W + imgPos.w*W/2}" y="${imgPos.y*H + imgPos.h*H/2}"
-                      text-anchor="middle" dominant-baseline="middle" font-size="10" fill="${bodyColor}" opacity="0.4">🖼</text>
+                      text-anchor="middle" dominant-baseline="middle" font-size="12" fill="${bodyColor}" opacity="0.4">🖼</text>
             </svg>`;
         }
 
@@ -1061,6 +1169,10 @@
                 const cardsContainer = document.getElementById('design-cards');
                 cardsContainer.innerHTML = '';
 
+                // Update title to reflect number of designs
+                const titleEl = modal.querySelector('h2');
+                titleEl.textContent = `Оберіть дизайн (${designs.length} варіантів)`;
+
                 window._designResolve = resolve;
 
                 for (const design of designs) {
@@ -1071,7 +1183,6 @@
                             ${renderDesignSVG(design)}
                         </div>
                         <strong style="font-size:15px;color:#333;">${design.name || 'Дизайн'}</strong>
-                        <p style="font-size:12px;color:#888;font-style:italic;margin:0;">${design.rationale || ''}</p>
                         <button class="btn-primary" style="padding:8px 16px;font-size:14px;margin-top:auto;">Обрати</button>
                     `;
                     card.querySelector('button').addEventListener('click', () => {

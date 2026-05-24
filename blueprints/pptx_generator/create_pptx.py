@@ -195,15 +195,18 @@ def create_presentation(filename, slides_data, images_dir=None, design_config=No
     city_para.font.color.rgb = selected_title_color
     city_para.alignment = 2  # Center
     
-    # Choose design type once for the entire presentation (except title slide)
+# Choose design type once for the entire presentation (except title slide)
     design_type = random.choice(['rectangle', 'circle', 'sidebar', 'header_bar', 'diagonal_split', 'triangle_accents', 'thin_frame'])
     rectangle_layout = None
     sidebar_layout = None
     header_bar_layout = None
-    
+    circle_layout = None
+
     # If rectangle design, choose layout once for consistency
     if design_type == 'rectangle':
         rectangle_layout = random.choice(rectangle_layout_options)
+    elif design_type == 'circle':
+        circle_layout = random.choice(circle_layout_options)
     elif design_type == 'sidebar':
         sidebar_layout = random.choice(sidebar_layout_options)
     elif design_type == 'header_bar':
@@ -297,20 +300,32 @@ def create_presentation(filename, slides_data, images_dir=None, design_config=No
             _apply_design_config(prs, slide, slide_data, design_config, slide_count, images_dir)
             continue
         
-        # Apply background design based on chosen type
+        # Apply background design based on chosen type — mirrored on even slides
+        is_even_slide = (slide_count % 2 == 0)
+
         if design_type == 'rectangle':
-            _add_background_rectangles(slide, prs.slide_width, prs.slide_height, color1, color2, rectangle_layout)
+            rect_mirror = {'left_half': 'right_half', 'right_half': 'left_half', 'full': 'full'}
+            eff_layout = rect_mirror.get(rectangle_layout, rectangle_layout) if is_even_slide else rectangle_layout
+            _add_background_rectangles(slide, prs.slide_width, prs.slide_height, color1, color2, eff_layout)
         elif design_type == 'circle':
-            circle_layout = random.choice(circle_layout_options)
-            _add_background_circles(slide, prs.slide_width, prs.slide_height, color1, color2, circle_layout)
+            circle_mirror = {
+                'corner_top_left': 'corner_top_right',
+                'corner_top_right': 'corner_top_left',
+                'corner_bottom_left': 'corner_bottom_right',
+                'corner_bottom_right': 'corner_bottom_left',
+            }
+            eff_layout = circle_mirror.get(circle_layout, circle_layout) if is_even_slide else circle_layout
+            _add_background_circles(slide, prs.slide_width, prs.slide_height, color1, color2, eff_layout)
         elif design_type == 'sidebar':
-            _add_sidebar(slide, prs.slide_width, prs.slide_height, color1, color2, sidebar_layout)
+            sidebar_mirror = {'sidebar_left': 'sidebar_right', 'sidebar_right': 'sidebar_left'}
+            eff_layout = sidebar_mirror.get(sidebar_layout, sidebar_layout) if is_even_slide else sidebar_layout
+            _add_sidebar(slide, prs.slide_width, prs.slide_height, color1, color2, eff_layout)
         elif design_type == 'header_bar':
             _add_header_bar(slide, prs.slide_width, prs.slide_height, color1, color2, header_bar_layout)
         elif design_type == 'diagonal_split':
-            _add_diagonal_split(slide, prs.slide_width, prs.slide_height, color1, color2)
+            _add_diagonal_split(slide, prs.slide_width, prs.slide_height, color1, color2, mirror=is_even_slide)
         elif design_type == 'triangle_accents':
-            _add_triangle_accents(slide, prs.slide_width, prs.slide_height, color1, color2)
+            _add_triangle_accents(slide, prs.slide_width, prs.slide_height, color1, color2, mirror=is_even_slide)
         elif design_type == 'thin_frame':
             _add_thin_frame(slide, prs.slide_width, prs.slide_height, color1, color2)
         
@@ -358,9 +373,9 @@ def create_presentation(filename, slides_data, images_dir=None, design_config=No
         CONTENT_HEIGHT = Inches(5.0)
         HALF_W = slide_width // 2       # половина слайду в EMU
 
-        # Зона зображення: 50% ширини мінус відступи
+        # Зона зображення: 50% ширини мінус відступи, ~10% вища ніж ширша
         img_zone_w = HALF_W - int(MARGIN * 1.5)
-        img_zone_h = CONTENT_HEIGHT
+        img_zone_h = min(int(img_zone_w * 1.1), CONTENT_HEIGHT)
 
         # Зона тексту: та сама ширина
         text_zone_w = HALF_W - int(MARGIN * 1.5)
@@ -689,9 +704,10 @@ def _add_header_bar(slide, slide_width, slide_height, color1, color2, layout):
     _lock_shape(bar)
 
 
-def _add_diagonal_split(slide, slide_width, slide_height, color1, color2):
+def _add_diagonal_split(slide, slide_width, slide_height, color1, color2, mirror=False):
     """
     Add diagonal split design - rectangle with diagonal gradient.
+    Mirror flips the gradient angle horizontally (45° ↔ 135°).
     """
     rect = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE,
@@ -700,28 +716,35 @@ def _add_diagonal_split(slide, slide_width, slide_height, color1, color2):
     )
     rect.z_order = 0
     rect.line.fill.background()
-    
+
     fill = rect.fill
     fill.gradient()
-    fill.gradient_angle = 45  # Diagonal angle
+    fill.gradient_angle = 135 if mirror else 45
     fill.gradient_stops[0].color.rgb = color1
     fill.gradient_stops[1].color.rgb = color2
-    
+
     _lock_shape(rect)
 
 
-def _add_triangle_accents(slide, slide_width, slide_height, color1, color2):
+def _add_triangle_accents(slide, slide_width, slide_height, color1, color2, mirror=False):
     """
-    Add triangle accents in corners - small triangles in top-left and bottom-right.
+    Add triangle accents in corners.
+    When mirror=False: top-left + bottom-right (default).
+    When mirror=True:  top-right + bottom-left.
     """
     triangle_size = int(min(slide_width, slide_height) * 0.15)
-    
-    # Add triangles in top-left and bottom-right corners
-    corner_configs = [
-        (0, 0, triangle_size, triangle_size),  # top-left
-        (slide_width - triangle_size, slide_height - triangle_size, triangle_size, triangle_size),  # bottom-right
-    ]
-    
+
+    if mirror:
+        corner_configs = [
+            (slide_width - triangle_size, 0, triangle_size, triangle_size),  # top-right
+            (0, slide_height - triangle_size, triangle_size, triangle_size),  # bottom-left
+        ]
+    else:
+        corner_configs = [
+            (0, 0, triangle_size, triangle_size),  # top-left
+            (slide_width - triangle_size, slide_height - triangle_size, triangle_size, triangle_size),  # bottom-right
+        ]
+
     for x, y, width, height in corner_configs:
         triangle = slide.shapes.add_shape(
             MSO_SHAPE.RIGHT_TRIANGLE,
@@ -730,13 +753,13 @@ def _add_triangle_accents(slide, slide_width, slide_height, color1, color2):
         )
         triangle.z_order = 0
         triangle.line.fill.background()
-        
+
         fill = triangle.fill
         fill.gradient()
         fill.gradient_angle = random.choice([0, 45, 90, 135, 180, 225, 270, 315])
         fill.gradient_stops[0].color.rgb = color1
         fill.gradient_stops[1].color.rgb = color2
-        
+
         _lock_shape(triangle)
 
 
@@ -886,7 +909,7 @@ def _apply_design_config(prs, slide, slide_data, design_config, slide_index, ima
     title_para.font.size = Pt(title_cfg['font_size'])
     title_para.font.bold = title_cfg.get('font_bold', False)
     title_para.font.color.rgb = _hex_to_rgb(title_cfg['font_color'])
-    title_para.font.name = global_cfg.get('font_family', 'Calibri')
+    title_para.font.name = global_cfg.get('font_family', 'Arial')
     alignment_map = {'left': 1, 'center': 2, 'right': 3}
     title_para.alignment = alignment_map.get(title_cfg.get('alignment', 'left'), 1)
 
@@ -914,7 +937,7 @@ def _apply_design_config(prs, slide, slide_data, design_config, slide_index, ima
         body_para.font.size = Pt(body_cfg['font_size'])
         body_para.font.bold = body_cfg.get('font_bold', False)
         body_para.font.color.rgb = _hex_to_rgb(body_cfg['font_color'])
-        body_para.font.name = global_cfg.get('font_family', 'Calibri')
+        body_para.font.name = global_cfg.get('font_family', 'Arial')
         body_para.alignment = alignment_map.get(body_cfg.get('alignment', 'left'), 1)
 
     image_cfg = design_config.get('image')
@@ -977,7 +1000,7 @@ def _render_table(slide, body_text, table_style, position):
             para.font.size = Pt(font_size)
             para.font.bold = True
             para.font.color.rgb = _hex_to_rgb(header_font_color)
-            para.font.name = 'Calibri'
+            para.font.name = 'Arial'
 
     for row_idx, row_cells in enumerate(data_rows):
         for col_idx, cell_text in enumerate(row_cells):
@@ -991,7 +1014,7 @@ def _render_table(slide, body_text, table_style, position):
             for para in cell.text_frame.paragraphs:
                 para.font.size = Pt(font_size)
                 para.font.color.rgb = _hex_to_rgb(cell_font_color)
-                para.font.name = 'Calibri'
+                para.font.name = 'Arial'
 
     for row_idx in range(n_rows):
         for col_idx in range(n_cols):

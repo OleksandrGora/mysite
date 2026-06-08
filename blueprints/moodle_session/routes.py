@@ -115,7 +115,7 @@ def test_run():
     logger.info(f"[MOODLE_SESSION] Тестовий запуск від {session.get('email')}")
 
     config = load_config()
-    result = run_report(config)
+    result = run_report(config, force=True)
 
     # Оновлюємо статус останнього запуску в конфігу
     save_config({

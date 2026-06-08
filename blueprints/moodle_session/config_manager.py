@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     "last_run": None,
     "last_run_status": None,
     "last_scheduled_date": None,  # Дата останнього запуску за розкладом (YYYY-MM-DD)
+    "last_report_hash": "",       # Хеш останнього звіту — для порівняння змін
 }
 
 

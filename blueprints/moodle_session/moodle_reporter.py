@@ -3,10 +3,12 @@ Moodle Reporter — портування reporter.js у Python.
 Отримує завдання з Moodle через API і відправляє звіт у Telegram.
 """
 
+import json
 import re
 import time
 import base64
 import urllib.parse
+from hashlib import sha256
 from datetime import datetime
 from typing import Optional
 
@@ -534,10 +536,11 @@ def send_telegram(text: str, bot_token: str, chat_ids: list[str]) -> None:
 # Головна функція
 # =============================================================
 
-def run_report(config: Optional[dict] = None) -> dict:
+def run_report(config: Optional[dict] = None, force: bool = False) -> dict:
     """
     Головна функція запуску звіту.
     Приймає конфіг (або завантажує з файлу).
+    Якщо force=False і звіт не змінився з попереднього разу — Telegram не надсилається.
     Повертає словник з результатом.
     """
     if config is None:
@@ -643,7 +646,37 @@ def run_report(config: Optional[dict] = None) -> dict:
                 })
 
         report_text = build_report(course_data)
+
+        # --- Механізм "тільки зміни" ---
+        # Формуємо зліпок поточних невиконаних завдань
+        snapshot = []
+        for cd in course_data:
+            for item in cd['items']:
+                snapshot.append({
+                    'name': item.get('name', ''),
+                    'timeOpen': item.get('timeOpen'),
+                    'timeClose': item.get('timeClose'),
+                    'deadlineDays': item.get('deadlineDays'),
+                    'isTest': item.get('isTest', False),
+                })
+        # Сортуємо для детермінованого хешу
+        snapshot.sort(key=lambda x: (x['name'], x['isTest']))
+        current_hash = sha256(
+            json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()
+        ).hexdigest()
+
+        prev_hash = config.get('last_report_hash', '')
+
+        if not force and current_hash == prev_hash:
+            logger.info("Moodle reporter: без змін — звіт не надсилаємо")
+            return {'success': True, 'report': report_text, 'error': None, 'skipped': True, 'reason': 'no changes'}
+
         logger.info(f"Moodle reporter: звіт готовий, надсилаємо в Telegram...")
+
+        # Зберігаємо хеш перед відправкою (щоб дублі не трапились)
+        from .config_manager import save_config as _save_cfg
+        _save_cfg({'last_report_hash': current_hash})
+
         send_telegram(report_text, bot_token, chat_ids)
 
         return {'success': True, 'report': report_text, 'error': None}

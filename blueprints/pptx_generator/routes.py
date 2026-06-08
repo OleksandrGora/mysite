@@ -71,6 +71,52 @@ GEMINI_TEXT_THINKING_BUDGET = 0
 GEMINI_TEXT_TEMPERATURE = 0.3
 
 # ---------------------------------------------------------------------------
+# Session management — серверне збереження стану pptx-генератора
+# ---------------------------------------------------------------------------
+
+PPTX_SESSION_ROOT = os.path.join(
+    os.getenv('DATA_DIR', '/home/openclaw/mysite/data'),
+    'pptx_sessions'
+)
+
+
+def _get_session_dir():
+    """Get or create persistent session directory for current user."""
+    if 'pptx_session_id' not in session:
+        session['pptx_session_id'] = uuid.uuid4().hex
+    sdir = os.path.join(PPTX_SESSION_ROOT, session['pptx_session_id'])
+    for sub in ('designs', 'images', 'presentations'):
+        os.makedirs(os.path.join(sdir, sub), exist_ok=True)
+    return sdir
+
+
+def _load_session_state():
+    """Load session state from disk."""
+    sdir = _get_session_dir()
+    state_file = os.path.join(sdir, 'state.json')
+    if os.path.exists(state_file):
+        with open(state_file, 'r') as f:
+            return json.load(f)
+    return {
+        'has_designs': False,
+        'has_images': False,
+        'slide_count': 0,
+        'designs': [],
+        'has_input': False,
+        'selected_designs': [],
+        'total_tokens': 0,
+        'raw_input': '',
+    }
+
+
+def _save_session_state(state):
+    """Save session state to disk."""
+    state_file = os.path.join(_get_session_dir(), 'state.json')
+    with open(state_file, 'w') as f:
+        json.dump(state, f)
+
+
+# ---------------------------------------------------------------------------
 
 def login_required(f):
     @wraps(f)
@@ -1190,7 +1236,8 @@ def upload_docx():
             return jsonify({'error': 'File must be a .docx file'}), 400
         
         temp_dir = tempfile.mkdtemp(prefix='docx_upload_')
-        file_path = os.path.join(temp_dir, file.filename)
+        safe_name = os.path.basename(file.filename)
+        file_path = os.path.join(temp_dir, safe_name)
         file.save(file_path)
         
         text = extract_text_from_docx(file_path)
@@ -1211,3 +1258,498 @@ def upload_docx():
     except Exception as e:
         logger.error(f"DOCX upload error: {e}")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+
+# ===================================================================
+# NEW: Session-aware endpoints for multi-design workflow
+# ===================================================================
+
+
+@pptx_generator_bp.route('/api/save-selection', methods=['POST'])
+@login_required
+def save_selection():
+    """Save selected design indices to session state."""
+    try:
+        body = request.get_json(force=True)
+        if not body or 'selected_indices' not in body:
+            return jsonify({'error': 'selected_indices required'}), 400
+        state = _load_session_state()
+        state['selected_designs'] = body['selected_indices']
+        _save_session_state(state)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Save selection error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/save-raw-input', methods=['POST'])
+@login_required
+def save_raw_input():
+    """Save raw textarea input to session state."""
+    try:
+        raw_text = request.get_data(as_text=True)
+        state = _load_session_state()
+        state['raw_input'] = raw_text
+        _save_session_state(state)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Save raw input error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/session-state', methods=['GET'])
+@login_required
+def session_state():
+    """Return current session state — designs, images, input status, selection, tokens."""
+    try:
+        state = _load_session_state()
+        sdir = _get_session_dir()
+        input_file = os.path.join(sdir, 'input.json')
+
+        if os.path.exists(input_file):
+            with open(input_file, 'r') as f:
+                state['input'] = json.load(f)
+
+        # Reload images status
+        img_dir = os.path.join(sdir, 'images')
+        image_files = [f for f in os.listdir(img_dir) if f.endswith('.png')]
+        state['has_images'] = len(image_files) > 0
+        state['image_count'] = len(image_files)
+
+        # Reload designs from disk
+        designs_dir = os.path.join(sdir, 'designs')
+        if os.path.isdir(designs_dir):
+            import glob as glob_mod
+            design_files = sorted(glob_mod.glob(os.path.join(designs_dir, '*.json')))
+            if design_files:
+                loaded = []
+                for df in design_files:
+                    with open(df, 'r') as f:
+                        loaded.append(json.load(f))
+                state['designs'] = loaded
+                state['has_designs'] = len(loaded) > 0
+
+        # Reload presentations
+        pres_dir = os.path.join(sdir, 'presentations')
+        if os.path.isdir(pres_dir):
+            pres_files = [f for f in os.listdir(pres_dir) if f.endswith('.pptx')]
+            state['presentations'] = pres_files
+        else:
+            state['presentations'] = []
+
+        # Ensure new fields exist (backward compatibility)
+        state.setdefault('selected_designs', [])
+        state.setdefault('total_tokens', 0)
+        state.setdefault('raw_input', '')
+
+        return jsonify(state)
+    except Exception as e:
+        logger.error(f"Session state error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/generate-designs', methods=['POST'])
+@login_required
+def generate_designs():
+    """
+    Generate 6 designs (3 LLM + 3 random) and store in session.
+    Body: raw JSON text or {slides: [...], input_text: '...'}.
+    """
+    try:
+        raw_data = request.get_data(as_text=True)
+        if not raw_data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        sdir = _get_session_dir()
+        total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+
+        # Parse input
+        try:
+            parsed = json.loads(raw_data)
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Невірний JSON. Використайте /api/validate для автовиправлення.'}), 400
+
+        # Support {slides: [...], ...} and direct array
+        if isinstance(parsed, dict) and 'slides' in parsed:
+            slides = parsed['slides']
+        elif isinstance(parsed, list):
+            slides = parsed
+        else:
+            return jsonify({'error': 'Data must be array of slides or {slides: [...]}'}), 400
+
+        # Validate
+        for i, slide in enumerate(slides):
+            if not isinstance(slide, dict):
+                return jsonify({'error': f'Slide {i} must be an object'}), 400
+            if 'title' not in slide:
+                return jsonify({'error': f'Slide {i} missing title'}), 400
+            if 'body' not in slide:
+                return jsonify({'error': f'Slide {i} missing body'}), 400
+
+        slide_count = len(slides)
+
+        # Save raw input to state (before clearing old data)
+        prev_state = _load_session_state()
+        prev_state['raw_input'] = raw_data
+        _save_session_state(prev_state)
+
+        # Save input to session
+        input_file = os.path.join(sdir, 'input.json')
+        with open(input_file, 'w') as f:
+            json.dump(slides, f)
+
+        # Clear old designs
+        designs_dir = os.path.join(sdir, 'designs')
+        shutil.rmtree(designs_dir, ignore_errors=True)
+        os.makedirs(designs_dir, exist_ok=True)
+
+        provider = request.args.get('provider', 'google').lower()
+        if provider not in ['google', 'openai']:
+            provider = 'google'
+
+        # --- 1. LLM designs ---
+        llm_designs = []
+        try:
+            slides_summary_lines = []
+            for i, slide in enumerate(slides):
+                title = slide.get('title', '')
+                body_text = slide.get('body', '')[:200]
+                content_type = slide.get('content_type', 'text')
+                ct_label = f"[{content_type}]" if content_type != 'text' else ""
+                slides_summary_lines.append(f"Слайд {i + 1}: {title} {ct_label}\n{body_text}")
+            slides_summary = '\n\n'.join(slides_summary_lines)
+            user_prompt = DESIGN_USER_PROMPT.format(slides_summary=slides_summary)
+
+            for attempt in range(2):
+                result_text = ''
+                try:
+                    if provider == 'openai':
+                        api_key = os.getenv('OPENAI_API_KEY')
+                        if api_key:
+                            from openai import OpenAI
+                            client = OpenAI(api_key=api_key)
+                            resp = client.chat.completions.create(
+                                model=OPENAI_TEXT_MODEL,
+                                messages=[
+                                    {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                                    {"role": "user", "content": user_prompt}
+                                ]
+                            )
+                            result_text = resp.choices[0].message.content.strip()
+                            if resp.usage:
+                                total_tokens['input_tokens'] += resp.usage.prompt_tokens or 0
+                                total_tokens['output_tokens'] += resp.usage.completion_tokens or 0
+                                total_tokens['total_tokens'] += resp.usage.total_tokens or 0
+                    else:
+                        api_key = os.getenv('GEMINI_API_KEY')
+                        if api_key:
+                            from google import genai
+                            from google.genai import types
+                            client = genai.Client(api_key=api_key)
+                            full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
+                            resp = client.models.generate_content(
+                                model=GEMINI_TEXT_MODEL,
+                                contents=full_prompt,
+                                config=types.GenerateContentConfig(temperature=0.4)
+                            )
+                            result_text = resp.text.strip()
+                            if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
+                                total_tokens['input_tokens'] += getattr(resp.usage_metadata, 'prompt_token_count', 0)
+                                total_tokens['output_tokens'] += getattr(resp.usage_metadata, 'candidates_token_count', 0)
+                                total_tokens['total_tokens'] += getattr(resp.usage_metadata, 'total_token_count', 0)
+                    # Extract JSON
+                    start = result_text.find('[')
+                    end = result_text.rfind(']')
+                    if start != -1 and end != -1 and end > start:
+                        result_text = result_text[start:end + 1]
+                    if '```json' in result_text:
+                        result_text = result_text.split('```json', 1)[1]
+                    if '```' in result_text:
+                        result_text = result_text.rsplit('```', 1)[0]
+                    result_text = result_text.strip()
+                    llm_designs = json.loads(result_text)
+                    if isinstance(llm_designs, list) and len(llm_designs) == 3:
+                        break
+                    llm_designs = []
+                except Exception as e:
+                    logger.warning(f"LLM design attempt {attempt + 1} failed: {e}")
+                    llm_designs = []
+        except Exception as e:
+            logger.warning(f"LLM design generation error: {e}")
+
+        # --- 2. Random designs ---
+        random_designs = [_generate_random_design(i) for i in range(3)]
+
+        # --- 3. Merge: 3 LLM + 3 random = 6 designs ---
+        all_designs = []
+        if llm_designs:
+            all_designs.extend(llm_designs)
+        all_designs.extend(random_designs)
+
+        # Validate & fix zones for each
+        fixed_designs = []
+        for i, design in enumerate(all_designs):
+            try:
+                design, was_fixed, conflicts = _validate_and_fix_zones(design)
+                if was_fixed:
+                    logger.warning(f"Design {i}: auto-fixed overlaps: {conflicts}")
+                fixed_designs.append(design)
+            except Exception as e:
+                logger.warning(f"Design {i} failed validation: {e}. Adding raw.")
+                fixed_designs.append(design)
+
+        # Store designs to session
+        for i, design in enumerate(fixed_designs):
+            df = os.path.join(designs_dir, f'design_{i}.json')
+            with open(df, 'w') as f:
+                json.dump(design, f)
+
+        # Update session state
+        prev_state = _load_session_state()
+        accumulated = prev_state.get('total_tokens', 0) + total_tokens.get('total_tokens', 0)
+        state = {
+            'has_designs': True,
+            'has_images': False,
+            'slide_count': slide_count,
+            'designs': fixed_designs,
+            'has_input': True,
+            'selected_designs': [],
+            'total_tokens': accumulated,
+            'raw_input': raw_data,
+        }
+        _save_session_state(state)
+
+        return jsonify({
+            'designs': fixed_designs,
+            'slide_count': slide_count,
+            'tokens': total_tokens,
+        })
+
+    except Exception as e:
+        logger.error(f"Generate designs error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/generate-images', methods=['POST'])
+@login_required
+def generate_images():
+    """Generate images for all slides that have image_description. SSE stream."""
+    sdir = _get_session_dir()
+
+    def stream():
+        try:
+            state = _load_session_state()
+            input_file = os.path.join(sdir, 'input.json')
+            if not os.path.exists(input_file):
+                yield _sse_event('error', {'message': 'Немає вхідних даних. Спочатку згенеруйте дизайн.'})
+                return
+
+            with open(input_file, 'r') as f:
+                slides = json.load(f)
+
+            provider = request.args.get('provider', 'google').lower()
+            if provider not in ['google', 'openai']:
+                provider = 'google'
+
+            images_dir = os.path.join(sdir, 'images')
+            os.makedirs(images_dir, exist_ok=True)
+
+            # Collect slides with image_description
+            image_tasks = {}
+            for i, slide in enumerate(slides):
+                desc = slide.get('image_description', '')
+                if desc:
+                    image_tasks[i] = desc
+
+            if not image_tasks:
+                yield _sse_event('status', {'step': 'no_images', 'message': 'Немає слайдів з image_description'})
+                state['has_images'] = True
+                _save_session_state(state)
+                yield _sse_event('done', {'message': 'Зображення не потрібні', 'filename': None, 'file_b64': None})
+                return
+
+            slide_count = len(slides)
+            yield _sse_event('status', {
+                'step': 'images_start',
+                'message': f'Генерую {len(image_tasks)} зображень паралельно...',
+                'slide_total': slide_count
+            })
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+
+            completed_lock = threading.Lock()
+            completed_count = [0]
+            total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+
+            def _generate_one(idx, desc):
+                if provider == 'openai':
+                    return idx, *generate_image_with_openai(desc, images_dir, idx)
+                else:
+                    return idx, *generate_image_with_google(desc, images_dir, idx)
+
+            max_workers = OPENAI_IMAGE_MAX_WORKERS if provider == 'openai' else GEMINI_IMAGE_MAX_WORKERS
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_generate_one, i, desc): i
+                    for i, desc in image_tasks.items()
+                }
+                for future in as_completed(futures):
+                    try:
+                        idx, image_path, image_tokens = future.result()
+                    except Exception as e:
+                        idx = futures[future]
+                        logger.warning(f"Image generation failed for slide {idx}: {e}")
+                        yield _sse_event('warning', {
+                            'message': f'Помилка зображення для слайду {idx + 1}: {e}'
+                        })
+                        continue
+
+                    with completed_lock:
+                        completed_count[0] += 1
+                        done = completed_count[0]
+
+                    if image_path:
+                        if image_tokens:
+                            total_tokens['input_tokens'] += image_tokens.get('input_tokens', 0)
+                            total_tokens['output_tokens'] += image_tokens.get('output_tokens', 0)
+                            total_tokens['total_tokens'] += image_tokens.get('total_tokens', 0)
+                        yield _sse_event('status', {
+                            'step': 'image_done',
+                            'message': f'Зображення {done}/{len(image_tasks)} готово (слайд {idx + 1})',
+                            'slide_index': idx,
+                            'slide_total': slide_count
+                        })
+                    else:
+                        yield _sse_event('warning', {
+                            'message': f'Зображення для слайду {idx + 1} не згенеровано, буде заглушка'
+                        })
+
+            # Update state — reload fresh to avoid overwriting concurrent changes
+            state = _load_session_state()
+            state['has_images'] = True
+            state['total_tokens'] = state.get('total_tokens', 0) + total_tokens.get('total_tokens', 0)
+            _save_session_state(state)
+
+            yield _sse_event('done', {
+                'message': f'Зображення згенеровано: {completed_count[0]}/{len(image_tasks)}',
+                'tokens': total_tokens
+            })
+
+        except Exception as e:
+            logger.error(f"Generate images error: {e}", exc_info=True)
+            yield _sse_event('error', {'message': f'Image generation failed: {str(e)}'})
+
+    return Response(
+        stream_with_context(stream()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+
+
+@pptx_generator_bp.route('/api/generate-presentations', methods=['POST'])
+@login_required
+def generate_presentations():
+    """
+    Generate .pptx files for selected designs.
+    Body: {'design_indices': [0, 2, 4]}
+    Returns list of {filename, design_name} (no base64 — files served via download endpoint).
+    """
+    try:
+        body = request.get_json(force=True)
+        if not body or 'design_indices' not in body:
+            return jsonify({'error': 'design_indices required'}), 400
+
+        indices = body['design_indices']
+        if not isinstance(indices, list) or not indices:
+            return jsonify({'error': 'design_indices must be non-empty array'}), 400
+
+        sdir = _get_session_dir()
+        input_file = os.path.join(sdir, 'input.json')
+        if not os.path.exists(input_file):
+            return jsonify({'error': 'No input data found. Generate designs first.'}), 400
+
+        with open(input_file, 'r') as f:
+            slides = json.load(f)
+
+        designs_dir = os.path.join(sdir, 'designs')
+        images_dir = os.path.join(sdir, 'images')
+        pres_dir = os.path.join(sdir, 'presentations')
+
+        results = []
+        for idx in indices:
+            if not isinstance(idx, int):
+                return jsonify({'error': f'Design index must be an integer, got {type(idx).__name__}'}), 400
+            df = os.path.join(designs_dir, f'design_{idx}.json')
+            if not os.path.exists(df):
+                return jsonify({'error': f'Design {idx} not found'}), 400
+
+            with open(df, 'r') as f:
+                design_config = json.load(f)
+
+            # Build slides_with_images — attach paths
+            slides_with_images = []
+            for si, slide in enumerate(slides):
+                s = slide.copy()
+                potential_img = os.path.join(images_dir, f'slide_{si}.png')
+                if os.path.exists(potential_img):
+                    s['image_path'] = potential_img
+                slides_with_images.append(s)
+
+            # Generate .pptx
+            filename = f"presentation_design_{idx + 1}.pptx"
+            output_path = os.path.join(pres_dir, filename)
+            create_presentation(output_path, slides_with_images, images_dir, design_config=design_config)
+
+            # Get design name
+            design_name = design_config.get('name', f'Design #{idx + 1}')
+            results.append({
+                'index': idx,
+                'filename': filename,
+                'design_name': design_name,
+            })
+
+        logger.info(f"Generated {len(results)} presentations for designs: {indices}")
+        return jsonify({'files': results, 'count': len(results)})
+
+    except Exception as e:
+        logger.error(f"Generate presentations error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/download-presentation/<filename>')
+@login_required
+def download_presentation(filename):
+    """Serve a single .pptx file from the session's presentations directory."""
+    import re
+    if not re.match(r'^[\w\.\-]+\.pptx$', filename):
+        return jsonify({'error': 'Invalid filename'}), 400
+    try:
+        sdir = _get_session_dir()
+        file_path = os.path.join(sdir, 'presentations', filename)
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+        return send_file(file_path, as_attachment=True, download_name=filename)
+    except Exception as e:
+        logger.error(f"Download presentation error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@pptx_generator_bp.route('/api/clear-session', methods=['POST'])
+@login_required
+def clear_session():
+    """Clear all session data — designs, images, presentations, input."""
+    try:
+        sdir = _get_session_dir()
+        if os.path.exists(sdir):
+            shutil.rmtree(sdir, ignore_errors=True)
+        # Remove session ID so next call starts fresh
+        session.pop('pptx_session_id', None)
+        logger.info(f"Session cleared: {sdir}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Clear session error: {e}")
+        return jsonify({'error': str(e)}), 500

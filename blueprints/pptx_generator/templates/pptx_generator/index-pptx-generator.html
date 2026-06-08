@@ -14,16 +14,23 @@
             max-width: 80%;
             margin: 0 auto;
         }
-        h1 { margin-bottom: 20px; color: #333; }
+        h1 { margin-bottom: 0; color: #333; font-size: 24px; }
         h2 { margin: 20px 0 15px; color: #555; font-size: 1.3em; }
-        
+
         .main-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
-        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
         .btn-primary {
             background: #1976d2;
             color: white;
@@ -36,7 +43,20 @@
         }
         .btn-primary:hover { background: #1565c0; }
         .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
-        
+
+        .btn-danger {
+            background: #d32f2f;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-danger:hover { background: #b71c1c; }
+        .btn-danger:disabled { background: #ccc; cursor: not-allowed; }
+
         .btn-secondary {
             background: #f5f5f5;
             color: #333;
@@ -47,7 +67,7 @@
             transition: background 0.2s;
         }
         .btn-secondary:hover { background: #e0e0e0; }
-        
+
         .btn-success {
             background: #388e3c;
             color: white;
@@ -59,7 +79,19 @@
         }
         .btn-success:hover { background: #2e7d32; }
         .btn-success:disabled { background: #ccc; cursor: not-allowed; }
-        
+
+        .btn-warning {
+            background: #f57c00;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .btn-warning:hover { background: #e65100; }
+        .btn-warning:disabled { background: #ccc; cursor: not-allowed; }
+
         .status-display {
             padding: 8px 12px;
             font-size: 14px;
@@ -67,30 +99,23 @@
             min-width: 200px;
             text-align: center;
         }
-        
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        
+
         .panel {
             background: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .form-group {
             margin-bottom: 20px;
         }
+
+        .form-group { margin-bottom: 20px; }
         label {
             display: block;
             margin-bottom: 8px;
             font-weight: 500;
             color: #444;
         }
-        
+
         .provider-selector {
             margin-bottom: 20px;
             padding: 15px;
@@ -120,23 +145,7 @@
             cursor: pointer;
             font-weight: 400;
         }
-        .radio-label input[type="radio"] {
-            cursor: pointer;
-        }
-        .checkbox-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            font-weight: 400;
-            padding-left: 15px;
-            border-left: 1px solid #ddd;
-        }
-        .checkbox-label input[type="checkbox"] {
-            cursor: pointer;
-            width: 18px;
-            height: 18px;
-        }
+        .radio-label input[type="radio"] { cursor: pointer; }
         .token-display {
             display: flex;
             align-items: center;
@@ -151,9 +160,8 @@
             color: #1976d2;
             font-family: 'Consolas', 'Monaco', monospace;
         }
-        .token-display .token-label {
-            font-size: 13px;
-        }
+        .token-display .token-label { font-size: 13px; }
+
         textarea {
             width: 100%;
             padding: 12px;
@@ -161,36 +169,28 @@
             border-radius: 4px;
             font-size: 14px;
             font-family: 'Consolas', 'Monaco', monospace;
-            min-height: 400px;
+            min-height: 300px;
             resize: vertical;
         }
-        
-        .example-section {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 4px;
-            margin-top: 20px;
+        textarea:disabled {
+            background: #f0f0f0;
+            cursor: not-allowed;
         }
-        .example-section h3 {
-            margin-bottom: 10px;
-            color: #666;
-            font-size: 1em;
-        }
-        
+
         .input-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
         }
-        
+
         .btn-copy-prompt {
             background: #e3f2fd;
             color: #1976d2;
-            padding: 6px 12px;
+            padding: 8px 16px;
             border: 1px solid #1976d2;
-            border-radius: 4px;
-            font-size: 13px;
+            border-radius: 6px;
+            font-size: 14px;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
@@ -206,6 +206,19 @@
             color: #388e3c;
             border-color: #388e3c;
         }
+
+        .example-section {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .example-section h3 {
+            margin-bottom: 10px;
+            color: #666;
+            font-size: 1em;
+        }
+
         .example-code {
             background: #263238;
             color: #aed581;
@@ -216,7 +229,7 @@
             overflow-x: auto;
             white-space: pre;
         }
-        
+
         .validation-result {
             margin-top: 15px;
             padding: 15px;
@@ -227,25 +240,29 @@
             background: #e8f5e9;
             border: 1px solid #4caf50;
             color: #2e7d32;
+            display: block;
         }
         .validation-result.invalid {
             background: #ffebee;
             border: 1px solid #f44336;
             color: #c62828;
+            display: block;
         }
         .validation-result.warnings {
             background: #fff3e0;
             border: 1px solid #ff9800;
             color: #e65100;
+            display: block;
         }
-        
+
         .actions {
             display: flex;
             gap: 10px;
             margin-top: 20px;
             align-items: center;
+            flex-wrap: wrap;
         }
-        
+
         .loading {
             display: inline-block;
             width: 20px;
@@ -262,7 +279,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* Progress log box */
         #progress-log {
             display: none;
             margin-top: 16px;
@@ -283,7 +299,7 @@
         #progress-log .log-line.warning { color: #ffcc80; }
         #progress-log .log-line.error   { color: #ef9a9a; }
         #progress-log .log-line.done    { color: #a5d6a7; font-weight: bold; }
-        
+
         .toast {
             position: fixed;
             bottom: 20px;
@@ -300,681 +316,303 @@
         .toast.success { background: #4caf50; }
         .toast.error { background: #f44336; }
         .toast.info { background: #2196f3; }
-        
-        /* Mobile responsive styles */
+        .toast.warning { background: #f57c00; }
+
+        /* Design cards */
+        .designs-section {
+            display: none;
+            margin-top: 20px;
+        }
+        .designs-section.visible { display: block; }
+
+        .designs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .designs-header h2 { margin: 0; }
+
+        .design-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .design-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            position: relative;
+            background: white;
+        }
+        .design-card:hover {
+            border-color: #90caf9;
+            box-shadow: 0 2px 8px rgba(25,118,210,0.15);
+        }
+        .design-card.selected {
+            border-color: #1976d2;
+            box-shadow: 0 2px 12px rgba(25,118,210,0.25);
+            background: #e3f2fd;
+        }
+        .design-card .checkbox-overlay {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            border: 2px solid #bbb;
+            border-radius: 4px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: white;
+            transition: all 0.15s;
+        }
+        .design-card.selected .checkbox-overlay {
+            background: #1976d2;
+            border-color: #1976d2;
+        }
+        .design-card .checkbox-overlay::after {
+            content: '✓';
+            display: block;
+            font-weight: bold;
+        }
+        .design-card .svg-wrap {
+            background: #f9f9f9;
+            border-radius: 6px;
+            padding: 6px;
+            display: flex;
+            justify-content: center;
+        }
+        .design-card .design-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        .design-card .design-source {
+            font-size: 11px;
+            color: #888;
+            margin-top: -4px;
+        }
+
+        .download-section {
+            display: none;
+            margin-top: 20px;
+        }
+        .download-section.visible { display: block; }
+
+        /* Confirm overlay */
+        .confirm-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.45);
+            z-index: 1500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .confirm-overlay.hidden { display: none; }
+        .confirm-dialog {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 450px;
+            text-align: center;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        .confirm-dialog h3 {
+            margin-bottom: 12px;
+            color: #333;
+        }
+        .confirm-dialog p {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+        .confirm-dialog .confirm-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
         @media (max-width: 768px) {
-            body {
-                padding: 0;
-                width: 100%;
-                max-width: 100%;
-            }
-            
-            .container {
-                grid-template-columns: 1fr;
-                padding: 15px;
-                gap: 15px;
-            }
-            
-            .main-header {
-                flex-direction: column;
-                gap: 15px;
-                text-align: center;
-                margin-bottom: 15px;
-            }
-            
-            h1 {
-                font-size: 20px;
-                margin-bottom: 0;
-            }
-            
-            h2 {
-                font-size: 18px;
-                margin: 15px 0 10px;
-            }
-            
-            .panel {
-                padding: 15px;
-            }
-            
-            .input-header {
-                flex-direction: column;
-                gap: 10px;
-                align-items: stretch;
-            }
-            
-            .btn-copy-prompt {
-                align-self: flex-start;
-                font-size: 12px;
-                padding: 8px 12px;
-            }
-            
-            textarea {
-                min-height: 200px;
-                font-size: 16px; /* Prevent zoom on iOS */
-                padding: 10px;
-            }
-            
-            .provider-selector {
-                padding: 12px;
-                margin-bottom: 15px;
-            }
-            
-            .provider-row {
-                flex-direction: column;
-                gap: 15px;
-                align-items: stretch;
-            }
-            
-            .radio-group {
-                flex-direction: column;
-                gap: 12px;
-            }
-            
-            .radio-label {
-                font-size: 14px;
-                padding: 8px 12px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                background: #f9f9f9;
-            }
-            
-            .radio-label input[type="radio"] {
-                margin-right: 8px;
-            }
-            
-            .checkbox-label {
-                padding-left: 0;
-                border-left: none;
-                font-size: 14px;
-                padding: 8px 12px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                background: #f9f9f9;
-            }
-            
-            .token-display {
-                padding-left: 0;
-                border-left: none;
-                text-align: center;
-                font-size: 13px;
-            }
-            
-            .actions {
-                flex-direction: column;
-                gap: 12px;
-                margin-top: 15px;
-            }
-            
-            .btn-primary, .btn-success {
-                font-size: 16px;
-                padding: 12px 20px;
-                min-height: 44px; /* iOS touch target */
-            }
-            
-            .btn-secondary {
-                font-size: 14px;
-                padding: 10px 16px;
-                min-height: 44px;
-            }
-            
-            .status-display {
-                min-width: auto;
-                font-size: 13px;
-                padding: 6px 10px;
-            }
-            
-            #progress-log {
-                font-size: 12px;
-                max-height: 150px;
-                padding: 10px 12px;
-            }
-            
-            .validation-result {
-                padding: 12px;
-                font-size: 13px;
-            }
-            
-            .example-section {
-                padding: 12px;
-                margin-top: 15px;
-            }
-            
-            .example-section h3 {
-                font-size: 14px;
-            }
-            
-            .example-code {
-                font-size: 0.8em;
-                padding: 10px;
-            }
-            
-            .toast {
-                left: 10px;
-                right: 10px;
-                bottom: 10px;
-                font-size: 14px;
-                padding: 12px 15px;
-            }
+            body { padding: 10px; width: 100%; max-width: 100%; }
+            .panel { padding: 15px; margin-bottom: 15px; }
+            .design-grid { grid-template-columns: 1fr; }
+            .main-header { flex-direction: column; text-align: center; gap: 15px; }
+            .header-actions { width: 100%; justify-content: center; flex-wrap: wrap; }
+            .actions { flex-direction: column; width: 100%; }
+            .actions button, .actions input[type="file"] + button { width: 100%; }
+            textarea { min-height: 200px; font-size: 16px; }
+            .provider-row { flex-direction: column; align-items: stretch; gap: 15px; }
+            .radio-group { flex-direction: column; gap: 10px; }
+            .token-display { border-left: none; padding-left: 0; text-align: center; }
+            .designs-header { flex-direction: column; gap: 10px; text-align: center; }
+            .confirm-dialog { margin: 20px; padding: 20px; }
+            .btn-copy-prompt { font-size: 13px; padding: 6px 12px; }
+            .example-section { padding: 12px; }
+            .example-code { font-size: 0.8em; padding: 10px; }
+            h1 { font-size: 20px; }
+            h2 { font-size: 18px; }
         }
-        
-@media (max-width: 480px) {
-            body {
-                padding: 0;
-            }
-            
-            .container {
-                padding: 10px;
-            }
-            
-            .main-header {
-                margin-bottom: 10px;
-            }
-            
-            h1 {
-                font-size: 18px;
-                margin-bottom: 0;
-            }
-            
-            h2 {
-                font-size: 16px;
-            }
-            
-            .panel {
-                padding: 12px;
-            }
-            
-            .provider-selector {
-                padding: 10px;
-            }
-            
-            .btn-copy-prompt {
-                font-size: 11px;
-                padding: 6px 10px;
-            }
-            
-            textarea {
-                min-height: 150px;
-                padding: 8px;
-            }
-            
-            .btn-primary, .btn-success {
-                font-size: 15px;
-                padding: 10px 16px;
-            }
-            
-            .btn-secondary {
-                font-size: 13px;
-                padding: 8px 12px;
-            }
-            
-            #progress-log {
-                font-size: 11px;
-                max-height: 120px;
-                padding: 8px 10px;
-            }
-            
-            .example-code {
-                font-size: 0.75em;
-                padding: 8px;
-            }
+
+        @media (max-width: 480px) {
+            body { padding: 8px; }
+            .panel { padding: 12px; }
+            textarea { min-height: 150px; padding: 10px; }
+            .btn-primary, .btn-success, .btn-warning { font-size: 15px; padding: 10px 16px; }
+            .btn-secondary { font-size: 13px; padding: 8px 12px; }
+            .btn-danger { font-size: 14px; padding: 8px 14px; }
+            #progress-log { font-size: 12px; max-height: 150px; }
         }
-        
-        @media (max-width: 700px) {
-            #design-cards {
-                grid-template-columns: 1fr !important;
-            }
+
+        @media (max-width: 1100px) and (min-width: 769px) {
+            .design-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
+
+    <!-- Confirm dialog -->
+    <div id="confirm-overlay" class="confirm-overlay hidden">
+        <div class="confirm-dialog">
+            <h3 id="confirm-title">Підтвердження</h3>
+            <p id="confirm-message">Ви впевнені?</p>
+            <div class="confirm-actions">
+                <button class="btn-secondary" onclick="closeConfirm()">Скасувати</button>
+                <button class="btn-danger" id="confirm-yes" onclick="confirmAction()">Так</button>
+            </div>
+        </div>
+    </div>
+
     <div class="main-header">
         <h1>Генератор PowerPoint презентацій</h1>
-        <button type="button" onclick="goToHome()" class="btn-secondary">На головну</button>
-    </div>
-    
-    <div class="container" style="grid-template-columns: 1fr;">
-        <div class="panel">
-            <div class="input-header">
-                <h2>Введіть текст або JSON</h2>
-                <button class="btn-copy-prompt" onclick="copyPrompt()" title="Копіює промпт у буфер обміну. Вставити у NotebookLM або ШІ чат, додати документи або вказати тему, вказати кількість слайдів.">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                    </svg>
-                    Копіювати промпт
-                </button>
-            </div>
-            <div class="form-group">
-                <textarea id="json-input" placeholder="Введіть текст для презентації або JSON масив об'єктів з полями title, body, image_description"></textarea>
-            </div>
-            
-            <div class="provider-selector">
-                <label>Провайдер для обробки тексту та зображень:</label>
-                <div class="provider-row">
-                    <div class="radio-group">
-                        <label class="radio-label">
-                            <input type="radio" name="image-provider" value="google" checked>
-                            Google Gemini
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="image-provider" value="openai">
-                            OpenAI
-                        </label>
-                    </div>
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="generate-images">
-                        Генерувати зображення
-                    </label>
-                    <label class="checkbox-label" style="display:none;">
-                        <input type="checkbox" id="suggest-design" checked>
-                        ✨ Запропонувати дизайн
-                    </label>
-                    <div class="token-display">
-                        <span class="token-label">Токенів використано:</span>
-                        <span class="token-value" id="token-count">0</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="actions">
-                <input type="file" id="file-upload" accept=".txt,.json,.docx" style="display: none;">
-                <button class="btn-secondary" onclick="document.getElementById('file-upload').click()">
-                    <span>+</span> Завантажити файл (.txt, .json, .docx)
-                </button>
-                <button class="btn-primary" id="btn-generate" onclick="generatePPTX()">
-                    <span>+</span> Створити презентацію
-                </button>
-                <div class="status-display" id="status-display">
-                    <span id="status-text">Ready</span>
-                </div>
-            </div>
-
-            <!-- SSE progress log -->
-            <div id="progress-log"></div>
-
-            <div id="validation-result" class="validation-result"></div>
+        <div class="header-actions">
+            <button type="button" id="btn-new" class="btn-danger" onclick="confirmNewPresentation()" style="display:none;">+ Нова презентація</button>
+            <button type="button" class="btn-copy-prompt" onclick="copyPrompt()" title="Копіює промпт у буфер обміну. Вставити у NotebookLM або ШІ чат, додати документи, ВКАЗАТИ ТЕМУ, ВКАЗАТИ КІЛЬКІСТЬ СЛАЙДІВ.">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                Копіювати промпт
+            </button>
+            <button type="button" onclick="goToHome()" class="btn-secondary">На головну</button>
         </div>
     </div>
-    
+
+    <div class="panel">
+        <div class="input-header">
+            <h2>Введіть текст або JSON</h2>
+        </div>
+        <div class="form-group">
+            <textarea id="json-input" placeholder='[{"title": "Назва слайду", "body": "Текст слайду", "image_description": "Опис ілюстрації"}]'></textarea>
+        </div>
+
+        <div class="provider-selector">
+            <label>Провайдер для обробки тексту та зображень:</label>
+            <div class="provider-row">
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="image-provider" value="google" checked>
+                        Google Gemini
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="image-provider" value="openai">
+                        OpenAI
+                    </label>
+                </div>
+                <div class="token-display">
+                    <span class="token-label">Токенів використано:</span>
+                    <span class="token-value" id="token-count">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <input type="file" id="file-upload" accept=".txt,.json,.docx" style="display: none;">
+            <button class="btn-secondary" onclick="document.getElementById('file-upload').click()">
+                + Завантажити файл
+            </button>
+            <button class="btn-primary" id="btn-generate-designs" onclick="generateDesigns()">
+                ✨ Згенерувати дизайн
+            </button>
+            <button class="btn-warning" id="btn-generate-images" onclick="generateImages()" disabled>
+                🖼 Згенерувати зображення
+            </button>
+            <div class="status-display" id="status-display">
+                <span id="status-text">Ready</span>
+            </div>
+        </div>
+
+        <div id="progress-log"></div>
+        <div id="validation-result" class="validation-result"></div>
+    </div>
+
+    <!-- Design cards section -->
+    <div id="designs-section" class="panel designs-section">
+        <div class="designs-header">
+            <h2>Варіанти дизайну</h2>
+            <div class="header-actions">
+                <span id="selected-count" style="font-size:14px;color:#666;">Вибрано: 0</span>
+            </div>
+        </div>
+        <div id="design-grid" class="design-grid"></div>
+        <div class="actions" style="margin-top:16px;">
+            <button class="btn-success" id="btn-generate-from-selected" onclick="generatePresentations()" disabled>
+                📊 Згенерувати вибрані презентації
+            </button>
+        </div>
+    </div>
+
+    <!-- Download section -->
+    <div id="download-section" class="panel download-section">
+        <h2>Завантаження</h2>
+        <div id="download-list"></div>
+    </div>
+
     <div id="toast" class="toast"></div>
 
-    <!-- Design Modal -->
-    <div id="design-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;overflow-y:auto;" onclick="if(event.target===this)closeDesignModal()">
-        <div style="background:white;margin:40px auto;max-width:1100px;border-radius:12px;padding:30px;position:relative;">
-            <h2 style="margin-bottom:20px;text-align:center;">Оберіть дизайн</h2>
-            <div id="design-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
-            </div>
-            <div style="text-align:center;margin-top:20px;">
-                <button class="btn-secondary" onclick="closeDesignModal()">Скасувати</button>
-            </div>
-        </div>
-    </div>
-    
     <script>
         const API_BASE = '/pptx-generator';
-        const STORAGE_KEY = 'pptx_generator_state';
-        const DESIGN_CACHE_KEY = 'pptx_design_cache';
+        let isWorking = false;
+        let sessionState = null;
+        let _confirmCallback = null;
 
-        // --- Design Cache (localStorage) ---
-        function getCurrentSlidesKey() {
-            const input = document.getElementById('json-input').value;
-            try {
-                const parsed = JSON.parse(input);
-                return JSON.stringify(parsed);
-            } catch {
-                return null;
-            }
+        // ---- Confirm helper ----
+        function showConfirm(title, message, callback) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            _confirmCallback = callback;
+            document.getElementById('confirm-overlay').classList.remove('hidden');
+        }
+        function closeConfirm() {
+            document.getElementById('confirm-overlay').classList.add('hidden');
+            _confirmCallback = null;
+        }
+        function confirmAction() {
+            document.getElementById('confirm-overlay').classList.add('hidden');
+            if (_confirmCallback) { _confirmCallback(); _confirmCallback = null; }
         }
 
-        function saveDesignCache(slides, designs) {
-            try {
-                const cache = {
-                    slides_json: JSON.stringify(slides),
-                    designs: designs,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(DESIGN_CACHE_KEY, JSON.stringify(cache));
-            } catch (e) {
-                console.error('Failed to save design cache:', e);
-            }
-        }
-
-        function loadDesignCache() {
-            try {
-                const raw = localStorage.getItem(DESIGN_CACHE_KEY);
-                if (!raw) return null;
-                const cache = JSON.parse(raw);
-                const currentKey = getCurrentSlidesKey();
-                if (!currentKey || cache.slides_json !== currentKey) return null;
-                return cache.designs;
-            } catch (e) {
-                console.error('Failed to load design cache:', e);
-                return null;
-            }
-        }
-
-        function clearDesignCache() {
-            try {
-                localStorage.removeItem(DESIGN_CACHE_KEY);
-            } catch (e) {
-                console.error('Failed to clear design cache:', e);
-            }
-        }
-
-        function hasDesignCache() {
-            return localStorage.getItem(DESIGN_CACHE_KEY) !== null;
-        }
-
-        // Load saved state from localStorage
-        function loadSavedState() {
-            try {
-                const saved = localStorage.getItem(STORAGE_KEY);
-                console.log('Loading saved state:', saved);
-                if (saved) {
-                    const state = JSON.parse(saved);
-                    console.log('Parsed state:', state);
-                    if (state.text) {
-                        const textarea = document.getElementById('json-input');
-                        textarea.value = state.text;
-                        console.log('Restored text, length:', state.text.length);
-                    }
-                    if (state.provider) {
-                        const providerRadio = document.querySelector(`input[name="image-provider"][value="${state.provider}"]`);
-                        if (providerRadio) {
-                            providerRadio.checked = true;
-                        }
-                    }
-                    if (state.generateImages !== undefined) {
-                        document.getElementById('generate-images').checked = state.generateImages;
-                    }
-                    if (state.suggestDesign !== undefined) {
-                        document.getElementById('suggest-design').checked = state.suggestDesign;
-                    }
-                }
-                // Always reset token count to 0 on page load
-                document.getElementById('token-count').textContent = '0';
-            } catch (e) {
-                console.error('Failed to load saved state:', e);
-            }
-        }
-
-        // Save current state to localStorage
-        function saveState() {
-            try {
-                const text = document.getElementById('json-input').value;
-                const provider = document.querySelector('input[name="image-provider"]:checked').value;
-                const generateImages = document.getElementById('generate-images').checked;
-                const suggestDesign = document.getElementById('suggest-design').checked;
-                const state = { text, provider, generateImages, suggestDesign };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            } catch (e) {
-                console.error('Failed to save state:', e);
-            }
-        }
-
-        let _isRevertingDesignCache = false;
-
-        // Setup auto-save listeners
-        const textarea = document.getElementById('json-input');
-
-        textarea.addEventListener('input', function() {
-            if (_isRevertingDesignCache) return;
-            if (hasDesignCache()) {
-                const confirmed = confirm('Дані змінено. Інформація про дизайн (отримана від LLM) буде видалена. Продовжити?');
-                if (!confirmed) {
-                    _isRevertingDesignCache = true;
-                    this.value = this.dataset.lastValue || '';
-                    _isRevertingDesignCache = false;
-                    return;
-                }
-                clearDesignCache();
-            }
-            this.dataset.lastValue = this.value;
-            saveState();
-        });
-        textarea.addEventListener('keyup', saveState);
-        textarea.addEventListener('change', saveState);
-        document.querySelectorAll('input[name="image-provider"]').forEach(radio => {
-            radio.addEventListener('change', saveState);
-        });
-        document.getElementById('generate-images').addEventListener('change', saveState);
-        window.addEventListener('beforeunload', saveState);
-
-        loadSavedState();
-        textarea.dataset.lastValue = textarea.value;
-
+        // ---- Toast ----
         function showToast(message, type = 'info') {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = `toast ${type} show`;
-            setTimeout(() => toast.classList.remove('show'), 3000);
+            const t = document.getElementById('toast');
+            t.textContent = message;
+            t.className = `toast ${type} show`;
+            setTimeout(() => t.classList.remove('show'), 3500);
         }
 
-        // Progress log helpers
-        function logClear() {
-            const log = document.getElementById('progress-log');
-            log.innerHTML = '';
-            log.style.display = 'block';
-        }
-        function logLine(text, type = 'status') {
-            const log = document.getElementById('progress-log');
-            const line = document.createElement('div');
-            line.className = `log-line ${type}`;
-            line.textContent = text;
-            log.appendChild(line);
-            log.scrollTop = log.scrollHeight;
-        }
-        function logHide() {
-            document.getElementById('progress-log').style.display = 'none';
-        }
-
-        // File upload handler
-        document.getElementById('file-upload').addEventListener('change', async function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            if (hasDesignCache()) {
-                const confirmed = confirm('Дані змінено. Інформація про дизайн (отримана від LLM) буде видалена. Продовжити?');
-                if (!confirmed) {
-                    this.value = '';
-                    return;
-                }
-                clearDesignCache();
-            }
-            
-            if (file.name.endsWith('.docx')) {
-                const formData = new FormData();
-                formData.append('file', file);
-                
-                try {
-                    const response = await fetch(`${API_BASE}/api/upload-docx`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const result = await response.json();
-                    if (result.success) {
-                        document.getElementById('json-input').value = result.text;
-                        showToast('DOCX файл завантажено', 'success');
-                    } else {
-                        showToast(result.error || 'Помилка завантаження DOCX', 'error');
-                    }
-                } catch (err) {
-                    showToast('Помилка: ' + err.message, 'error');
-                }
-                return;
-            }
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('json-input').value = e.target.result;
-                showToast('Файл завантажено', 'success');
-            };
-            reader.readAsText(file);
-        });
-
-        let isGenerating = false;
-
-        window.addEventListener('beforeunload', function(e) {
-            if (isGenerating) {
-                e.preventDefault();
-                e.returnValue = 'Генерація презентації триває. Закрити сторінку?';
-                return e.returnValue;
-            }
-        });
-
-        async function generatePPTX() {
-            const input = document.getElementById('json-input').value;
-            const btn = document.getElementById('btn-generate');
-            const statusText = document.getElementById('status-text');
-
-            if (!input.trim()) {
-                showToast('Введіть текст або JSON', 'error');
-                return;
-            }
-
-            const provider = document.querySelector('input[name="image-provider"]:checked').value;
-            const generateImages = document.getElementById('generate-images').checked;
-
-            let designConfig = null;
-            let effectiveInput = input;
-
-            let slides;
-            try {
-                slides = JSON.parse(input);
-            } catch {
-                showToast('Для пропозиції дизайну потрібен валідний JSON', 'error');
-                return;
-            }
-
-            logClear();
-            btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Аналіз...';
-
-            // Step 1: Try to load cached LLM designs, or fetch new ones
-            let llmDesigns = loadDesignCache();
-            if (llmDesigns) {
-                logLine('♻ Використовую кешовані дизайни (LLM)', 'status');
-            } else {
-                logLine('▶ Аналізую тему, пропоную дизайни...');
-                statusText.textContent = 'Аналіз теми...';
-                const result = await fetchDesignSuggestions(slides, provider);
-                if (result && result.designs && result.designs.length) {
-                    llmDesigns = result.designs;
-                    saveDesignCache(slides, llmDesigns);
-                    if (result.tokens && result.tokens.total_tokens) {
-                        document.getElementById('token-count').textContent =
-                            (parseInt(document.getElementById('token-count').textContent.replace(/\D/g,'')) + result.tokens.total_tokens).toLocaleString();
-                    }
-                } else {
-                    logLine('⚠ LLM дизайни не отримано', 'warning');
-                }
-            }
-
-            // Step 2: Always fetch 3 random designs
-            statusText.textContent = 'Генерую випадкові дизайни...';
-            logLine('▶ Генерую випадкові дизайни...', 'status');
-            let randomDesigns = [];
-            try {
-                const randomResp = await fetch(`${API_BASE}/api/random-designs`);
-                if (randomResp.ok) {
-                    const randomResult = await randomResp.json();
-                    randomDesigns = randomResult.designs || [];
-                }
-            } catch (e) {
-                logLine('⚠ Помилка отримання випадкових дизайнів: ' + e.message, 'warning');
-            }
-
-            // Step 3: Merge: 3 LLM + 3 random = 6 designs
-            let allDesigns = [];
-            if (llmDesigns) {
-                allDesigns = allDesigns.concat(llmDesigns);
-            }
-            if (randomDesigns) {
-                allDesigns = allDesigns.concat(randomDesigns);
-            }
-
-            if (!allDesigns.length) {
-                showToast('Не вдалось отримати варіанти дизайну', 'warning');
-                logLine('⚠ Немає доступних дизайнів', 'warning');
-            } else {
-                logLine(`▶ Показано ${allDesigns.length} варіантів дизайну`, 'status');
-                statusText.textContent = 'Оберіть дизайн...';
-                designConfig = await showDesignModal(allDesigns);
-                if (designConfig === null) {
-                    statusText.textContent = 'Скасовано';
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>+</span> Створити презентацію';
-                    logLine('✗ Користувач скасував вибір дизайну', 'warning');
-                    return;
-                }
-            }
-
-            effectiveInput = JSON.stringify({ slides, design_config: designConfig });
-
-            isGenerating = true;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="loading"></span> Генерую...';
-            statusText.textContent = 'Запуск...';
-            logLine('▶ Запуск генерації...');
-
-            try {
-                const response = await fetch(
-                    `${API_BASE}/api/generate?provider=${provider}&generate_images=${generateImages}`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: effectiveInput
-                    }
-                );
-
-                if (!response.ok) {
-                    // Non-streaming error (e.g. 400/500 before stream started)
-                    let errMsg = 'Помилка генерації';
-                    try { errMsg = (await response.json()).error || errMsg; } catch (_) {}
-                    throw new Error(errMsg);
-                }
-
-                // Read SSE stream via fetch ReadableStream
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-
-                    // SSE lines end with \n\n
-                    const parts = buffer.split('\n\n');
-                    buffer = parts.pop(); // keep incomplete last chunk
-
-                    for (const part of parts) {
-                        const line = part.trim();
-                        if (!line.startsWith('data:')) continue;
-
-                        let event;
-                        try {
-                            event = JSON.parse(line.slice(5).trim());
-                        } catch (_) {
-                            continue;
-                        }
-
-                        handleSSEEvent(event);
-                    }
-                }
-
-            } catch (e) {
-                logLine('✗ ' + e.message, 'error');
-                showToast('Помилка: ' + e.message, 'error');
-                statusText.textContent = 'Помилка';
-            } finally {
-                isGenerating = false;
-                btn.disabled = false;
-                btn.innerHTML = '<span>+</span> Створити презентацію';
-            }
-        }
-
+        // ---- Prompt Template ----
         const PROMPT_TEMPLATE = `Створи дані для PowerPoint презентації у форматі JSON масиву об'єктів.
 
 Тема презентації: {вкажи тему}
@@ -1012,7 +650,7 @@
 {
   "slide_number": 2,
   "title": "Порівняльна таблиця",
-  "body": "| Показник | 2024 | 2025 |\n|----------|------|------|\n| Дохід | 100 | 150 |\n| Витрати | 80 | 110 |",
+  "body": "| Показник | 2024 | 2025 |\\n|----------|------|------|\\n| Дохід | 100 | 150 |\\n| Витрати | 80 | 110 |",
   "image_description": "Таблиця з даними",
   "content_type": "table"
 }
@@ -1021,7 +659,7 @@
 {
   "slide_number": 3,
   "title": "Розподіл бюджету",
-  "body": "Освіта: 45\nОхорона здоров'я: 30\nІнфраструктура: 25",
+  "body": "Освіта: 45\\nОхорона здоров'я: 30\\nІнфраструктура: 25",
   "image_description": "Діаграма розподілу бюджету",
   "content_type": "chart"
 }
@@ -1045,73 +683,291 @@
             }
         }
 
-        function handleSSEEvent(event) {
+        // ---- Progress log ----
+        function logClear() {
+            const log = document.getElementById('progress-log');
+            log.innerHTML = '';
+            log.style.display = 'block';
+        }
+        function logLine(text, type = 'status') {
+            const log = document.getElementById('progress-log');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            line.textContent = text;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // ---- File upload ----
+        document.getElementById('file-upload').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (file.name.endsWith('.docx')) {
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const resp = await fetch(`${API_BASE}/api/upload-docx`, { method: 'POST', body: formData });
+                    const result = await resp.json();
+                    if (result.success) {
+                        document.getElementById('json-input').value = result.text;
+                        showToast('DOCX файл завантажено', 'success');
+                    } else {
+                        showToast(result.error || 'Помилка', 'error');
+                    }
+                } catch (err) { showToast('Помилка: ' + err.message, 'error'); }
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) { document.getElementById('json-input').value = e.target.result; showToast('Файл завантажено', 'success'); };
+            reader.readAsText(file);
+        });
+
+        // ---- Session poll ----
+        async function pollSessionState() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/session-state`);
+                if (!resp.ok) return null;
+                return await resp.json();
+            } catch { return null; }
+        }
+
+        async function restoreSession() {
+            const state = await pollSessionState();
+            if (!state) return;
+            sessionState = state;
+
+            // Restore raw input (raw text before it was parsed as JSON)
+            if (state.raw_input) {
+                document.getElementById('json-input').value = state.raw_input;
+            } else if (state.has_input && state.input) {
+                document.getElementById('json-input').value = JSON.stringify(state.input, null, 2);
+            }
+
+            // Restore total tokens
+            if (state.total_tokens) {
+                document.getElementById('token-count').textContent = Number(state.total_tokens).toLocaleString();
+            }
+
+            if (state.has_designs && state.designs && state.designs.length) {
+                showDesigns(state.designs);
+                document.getElementById('btn-new').style.display = '';
+                enableInput(false);
+
+                // Restore selected designs
+                if (state.selected_designs && state.selected_designs.length) {
+                    state.selected_designs.forEach(idx => {
+                        _selectedDesigns.add(idx);
+                        const card = document.querySelector(`.design-card[data-index="${idx}"]`);
+                        if (card) card.classList.add('selected');
+                    });
+                    updateSelectedCount();
+                }
+            }
+            if (state.has_images) {
+                document.getElementById('btn-generate-images').disabled = false;
+                document.getElementById('btn-generate-images').textContent = '🔄 Згенерувати зображення заново';
+            }
+            if (state.presentations && state.presentations.length) {
+                showDownloaded(state.presentations);
+            }
+            updateSelectedCount();
+        }
+
+        // ---- Enable / disable input ----
+        function enableInput(enabled) {
+            const ta = document.getElementById('json-input');
+            ta.disabled = !enabled;
+            document.querySelector('input[type="file"]').disabled = !enabled;
+            if (enabled) {
+                document.getElementById('btn-generate-designs').textContent = '✨ Згенерувати дизайн';
+            } else {
+                document.getElementById('btn-generate-designs').textContent = '♻ Згенерувати заново';
+            }
+        }
+
+        // ---- Generate designs ----
+        async function generateDesigns() {
+            const input = document.getElementById('json-input').value;
+            if (!input.trim()) { showToast('Введіть текст або JSON', 'error'); return; }
+
+            // If session already has designs, confirm regeneration
+            if (sessionState && sessionState.has_designs && !document.getElementById('json-input').disabled) {
+                // Input is enabled = no active session yet, proceed
+            } else if (sessionState && sessionState.has_designs) {
+                showConfirm(
+                    'Згенерувати нові дизайни?',
+                    'Варіанти дизайну та зображення будуть видалені. Нова генерація створить 6 нових варіантів (3 LLM + 3 локальних). Продовжити?',
+                    () => { _doGenerateDesigns(input); }
+                );
+                return;
+            }
+            _doGenerateDesigns(input);
+        }
+
+        async function _doGenerateDesigns(input) {
+            const btn = document.getElementById('btn-generate-designs');
             const statusText = document.getElementById('status-text');
 
+            // Save raw input before generating
+            fetch(`${API_BASE}/api/save-raw-input`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: input
+            }).catch(() => {});
+
+            let slides;
+            try {
+                slides = JSON.parse(input);
+            } catch {
+                showToast('Потрібен валідний JSON', 'error');
+                return;
+            }
+
+            isWorking = true;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Генерую дизайни...';
+            statusText.textContent = 'Генерація дизайнів...';
+            logClear();
+            logLine('▶ Генерую 6 варіантів дизайну (3 LLM + 3 локальних)...');
+
+            const provider = document.querySelector('input[name="image-provider"]:checked').value;
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/generate-designs?provider=${provider}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(slides)
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || 'Помилка генерації дизайнів');
+                }
+                const result = await resp.json();
+
+                if (result.designs && result.designs.length) {
+                    showDesigns(result.designs);
+                    logLine(`✓ Отримано ${result.designs.length} варіантів дизайну`, 'done');
+                    statusText.textContent = 'Оберіть дизайн(и)';
+                    enableInput(false);
+                    document.getElementById('btn-new').style.display = '';
+                    showToast('Дизайни згенеровано! Оберіть варіанти', 'success');
+
+                    // Refresh state and update token count from server
+                    sessionState = await pollSessionState();
+                    if (sessionState && sessionState.total_tokens) {
+                        document.getElementById('token-count').textContent = Number(sessionState.total_tokens).toLocaleString();
+                    }
+                } else {
+                    logLine('✗ Не вдалось отримати дизайни', 'error');
+                    showToast('Не вдалось отримати дизайни', 'error');
+                }
+            } catch (e) {
+                logLine('✗ ' + e.message, 'error');
+                showToast('Помилка: ' + e.message, 'error');
+                statusText.textContent = 'Помилка';
+            } finally {
+                isWorking = false;
+                btn.disabled = false;
+                btn.innerHTML = sessionState && sessionState.has_designs ? '♻ Згенерувати заново' : '✨ Згенерувати дизайн';
+            }
+        }
+
+        // ---- Generate images ----
+        async function generateImages() {
+            // If images already exist, confirm regeneration
+            if (sessionState && sessionState.has_images) {
+                showConfirm(
+                    'Згенерувати зображення заново?',
+                    'Усі попередні зображення будуть замінені новими. Продовжити?',
+                    () => { _doGenerateImages(); }
+                );
+                return;
+            }
+            _doGenerateImages();
+        }
+
+        async function _doGenerateImages() {
+            const provider = document.querySelector('input[name="image-provider"]:checked').value;
+            const btn = document.getElementById('btn-generate-images');
+            const statusText = document.getElementById('status-text');
+
+            isWorking = true;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Генерую зображення...';
+            logClear();
+            logLine('▶ Генерація зображень...');
+            statusText.textContent = 'Генерація зображень...';
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/generate-images?provider=${provider}`, { method: 'POST' });
+                if (!resp.ok) { throw new Error('Помилка генерації зображень'); }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const parts = buffer.split('\n\n');
+                    buffer = parts.pop();
+                    for (const part of parts) {
+                        const line = part.trim();
+                        if (!line.startsWith('data:')) continue;
+                        try {
+                            const event = JSON.parse(line.slice(5).trim());
+                            handleImageSSEEvent(event);
+                        } catch { continue; }
+                    }
+                }
+            } catch (e) {
+                logLine('✗ ' + e.message, 'error');
+                showToast('Помилка: ' + e.message, 'error');
+            } finally {
+                isWorking = false;
+                btn.disabled = false;
+                statusText.textContent = 'Готово';
+                const freshState = await pollSessionState();
+                if (freshState) {
+                    sessionState = freshState;
+                }
+                btn.textContent = sessionState && sessionState.has_images
+                    ? '🔄 Згенерувати зображення заново'
+                    : '🖼 Згенерувати зображення';
+            }
+        }
+
+        function handleImageSSEEvent(event) {
+            const statusText = document.getElementById('status-text');
             switch (event.type) {
                 case 'status':
-                    statusText.textContent = event.message || 'Processing...';
+                    statusText.textContent = event.message || '...';
                     logLine('• ' + event.message, 'status');
                     break;
-
                 case 'warning':
                     logLine('⚠ ' + event.message, 'warning');
                     break;
-
                 case 'error':
-                    statusText.textContent = 'Помилка';
                     logLine('✗ ' + event.message, 'error');
                     showToast('Помилка: ' + event.message, 'error');
                     break;
-
-                case 'done': {
-                    statusText.textContent = 'Готово!';
+                case 'done':
                     logLine('✓ ' + event.message, 'done');
-
-                    // Update token counter
-                    if (event.tokens && event.tokens.total_tokens) {
-                        document.getElementById('token-count').textContent =
-                            event.tokens.total_tokens.toLocaleString();
-                    }
-
-                    // Trigger file download from base64
-                    if (event.file_b64) {
-                        try {
-                            const binary = atob(event.file_b64);
-                            const bytes = new Uint8Array(binary.length);
-                            for (let i = 0; i < binary.length; i++) {
-                                bytes[i] = binary.charCodeAt(i);
-                            }
-                            const blob = new Blob([bytes], {
-                                type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                            });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = event.filename || `presentation_${Date.now()}.pptx`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-
-                            showToast('Презентацію створено!', 'success');
-                            localStorage.removeItem(STORAGE_KEY);
-                        } catch (e) {
-                            logLine('✗ Помилка завантаження файлу: ' + e.message, 'error');
-                            showToast('Помилка завантаження файлу', 'error');
-                        }
-                    }
+                    showToast('Зображення згенеровано!', 'success');
                     break;
-                }
-
-                default:
-                    console.log('Unknown SSE event:', event);
             }
         }
-        
+
+        // ---- Render design SVG ----
+        function escapeHtml(s) {
+            if (typeof s !== 'string') return String(s);
+            return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
         function renderDesignSVG(design) {
             const W = 264, H = 168;
-            const bg = design.global.background_color;
+            const bg = escapeHtml(design.global.background_color);
             const titlePos = design.title.position;
             const bodyPos = design.body.position;
             const imgPos = design.image.position;
@@ -1122,7 +978,7 @@
                 const y = shape.position.y * H;
                 const w = shape.position.w * W;
                 const h = shape.position.h * H;
-                const fill = shape.color || shape.gradient?.color_start || '#888';
+                const fill = escapeHtml(shape.color || shape.gradient?.color_start || '#888');
 
                 if (shape.type === 'rectangle') {
                     shapesSVG += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" opacity="0.85"/>`;
@@ -1133,82 +989,234 @@
                 }
             }
 
-            const titleColor = design.title.font_color;
-            const bodyColor = design.body.font_color;
+            const titleColor = escapeHtml(design.title.font_color);
+            const bodyColor = escapeHtml(design.body.font_color);
 
             return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-                <rect width="${W}" height="${H}" fill="${bg}"/>
-                ${shapesSVG}
-                <rect x="${titlePos.x*W}" y="${titlePos.y*H}" width="${titlePos.w*W}" height="${titlePos.h*H*0.4}"
-                      fill="${titleColor}" opacity="0.8" rx="2"/>
-                ${[0,1,2].map(i => `<rect x="${bodyPos.x*W}" y="${bodyPos.y*H + i*10}" width="${bodyPos.w*W*(0.9-i*0.1)}" height="5"
-                      fill="${bodyColor}" opacity="0.4" rx="1"/>`).join('')}
-                <rect x="${imgPos.x*W}" y="${imgPos.y*H}" width="${imgPos.w*W}" height="${imgPos.h*H}"
-                      fill="#888" opacity="0.2" rx="3"/>
-                <text x="${imgPos.x*W + imgPos.w*W/2}" y="${imgPos.y*H + imgPos.h*H/2}"
-                      text-anchor="middle" dominant-baseline="middle" font-size="12" fill="${bodyColor}" opacity="0.4">🖼</text>
-            </svg>`;
+                        <rect width="${W}" height="${H}" fill="${bg}"/>
+                        ${shapesSVG}
+                        <rect x="${titlePos.x*W}" y="${titlePos.y*H}" width="${titlePos.w*W}" height="${titlePos.h*H*0.4}" fill="${titleColor}" opacity="0.8" rx="2"/>
+                        ${[0,1,2].map(i => `<rect x="${bodyPos.x*W}" y="${bodyPos.y*H + i*10}" width="${bodyPos.w*W*(0.9-i*0.1)}" height="5" fill="${bodyColor}" opacity="0.4" rx="1"/>`).join('')}
+                        <rect x="${imgPos.x*W}" y="${imgPos.y*H}" width="${imgPos.w*W}" height="${imgPos.h*H}" fill="#888" opacity="0.2" rx="3"/>
+                        <text x="${imgPos.x*W + imgPos.w*W/2}" y="${imgPos.y*H + imgPos.h*H/2}" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="${bodyColor}" opacity="0.4">🖼</text>
+                    </svg>`;
         }
 
-        async function fetchDesignSuggestions(slides, provider) {
-            try {
-                const resp = await fetch(`${API_BASE}/api/suggest-design`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ slides, provider })
-                });
-                return resp.ok ? resp.json() : null;
-            } catch {
-                return null;
-            }
-        }
+        // ---- Show designs ----
+        let _selectedDesigns = new Set();
 
-        function showDesignModal(designs) {
-            return new Promise((resolve) => {
-                const modal = document.getElementById('design-modal');
-                const cardsContainer = document.getElementById('design-cards');
-                cardsContainer.innerHTML = '';
+        function showDesigns(designs) {
+            const grid = document.getElementById('design-grid');
+            grid.innerHTML = '';
+            _selectedDesigns = new Set();
+            document.getElementById('designs-section').classList.add('visible');
+            document.getElementById('btn-generate-images').disabled = false;
 
-                // Update title to reflect number of designs
-                const titleEl = modal.querySelector('h2');
-                titleEl.textContent = `Оберіть дизайн (${designs.length} варіантів)`;
+            designs.forEach((design, idx) => {
+                const card = document.createElement('div');
+                card.className = 'design-card';
+                card.dataset.index = idx;
+                card.onclick = () => toggleDesign(idx, card);
 
-                window._designResolve = resolve;
-
-                for (const design of designs) {
-                    const card = document.createElement('div');
-                    card.style.cssText = 'border:1px solid #e0e0e0;border-radius:8px;padding:15px;text-align:center;display:flex;flex-direction:column;gap:10px;';
-                    card.innerHTML = `
-                        <div style="background:#f9f9f9;border-radius:6px;padding:8px;display:flex;justify-content:center;">
-                            ${renderDesignSVG(design)}
-                        </div>
-                        <strong style="font-size:15px;color:#333;">${design.name || 'Дизайн'}</strong>
-                        <button class="btn-primary" style="padding:8px 16px;font-size:14px;margin-top:auto;">Обрати</button>
-                    `;
-                    card.querySelector('button').addEventListener('click', () => {
-                        modal.style.display = 'none';
-                        window._designResolve(design);
-                    });
-                    cardsContainer.appendChild(card);
-                }
-
-                modal.style.display = 'block';
+                const source = idx < 3 ? 'LLM' : 'Локальний';
+                card.innerHTML = `
+                    <div class="checkbox-overlay"></div>
+                    <div class="svg-wrap">${renderDesignSVG(design)}</div>
+                    <div class="design-name"></div>
+                    <div class="design-source"></div>
+                `;
+                card.querySelector('.design-name').textContent = design.name || 'Дизайн #' + (idx + 1);
+                card.querySelector('.design-source').textContent = 'Джерело: ' + source;
+                grid.appendChild(card);
             });
         }
 
-        function closeDesignModal() {
-            const modal = document.getElementById('design-modal');
-            modal.style.display = 'none';
-            if (window._designResolve) {
-                window._designResolve(null);
-                window._designResolve = null;
+        function toggleDesign(idx, card) {
+            if (_selectedDesigns.has(idx)) {
+                _selectedDesigns.delete(idx);
+                card.classList.remove('selected');
+            } else {
+                _selectedDesigns.add(idx);
+                card.classList.add('selected');
+            }
+            updateSelectedCount();
+            saveSelectionToServer();
+        }
+
+        function updateSelectedCount() {
+            const count = _selectedDesigns.size;
+            document.getElementById('selected-count').textContent = `Вибрано: ${count}`;
+            document.getElementById('btn-generate-from-selected').disabled = count === 0;
+        }
+
+        // ---- Generate presentations ----
+        async function generatePresentations() {
+            if (_selectedDesigns.size === 0) {
+                showToast('Виберіть хоча б один дизайн', 'warning');
+                return;
+            }
+            const indices = Array.from(_selectedDesigns);
+            const btn = document.getElementById('btn-generate-from-selected');
+            const statusText = document.getElementById('status-text');
+
+            isWorking = true;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="loading"></span> Генерую ${indices.length} презентацій...`;
+            logClear();
+            logLine(`▶ Генерую ${indices.length} презентацій для вибраних дизайнів...`);
+            statusText.textContent = 'Створення презентацій...';
+
+            try {
+                const resp = await fetch(`${API_BASE}/api/generate-presentations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ design_indices: indices })
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || 'Помилка генерації');
+                }
+                const result = await resp.json();
+
+                if (result.files && result.files.length) {
+                    logLine(`✓ Створено ${result.files.length} презентацій`, 'done');
+                    showToast(`Створено ${result.files.length} презентацій!`, 'success');
+                    statusText.textContent = 'Готово!';
+
+                    // Download each file via the session-based endpoint
+                    const filenames = [];
+                    for (const file of result.files) {
+                        const url = `${API_BASE}/api/download-presentation/${file.filename}`;
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = file.filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        filenames.push(file.filename);
+                        logLine(`• ${file.filename} (${file.design_name})`, 'status');
+                    }
+                    showDownloaded(filenames);
+                } else {
+                    throw new Error('Не отримано файлів');
+                }
+            } catch (e) {
+                logLine('✗ ' + e.message, 'error');
+                showToast('Помилка: ' + e.message, 'error');
+                statusText.textContent = 'Помилка';
+            } finally {
+                isWorking = false;
+                btn.disabled = false;
+                btn.innerHTML = '📊 Згенерувати вибрані презентації';
             }
         }
 
-        // Navigate to home page
+// ---- Navigation ----
         function goToHome() {
             window.location.href = '/';
         }
+
+        // ---- New Presentation ----
+        async function confirmNewPresentation() {
+            showConfirm(
+                'Нова презентація',
+                'Усі поточні дизайни, зображення та результати будуть видалені. Розпочати нову презентацію?',
+                async () => {
+                    try {
+                        const resp = await fetch(`${API_BASE}/api/clear-session`, { method: 'POST' });
+                        if (!resp.ok) {
+                            showToast('Не вдалося очистити сесію', 'error');
+                            return;
+                        }
+                    } catch (e) {
+                        showToast('Помилка мережі: ' + e.message, 'error');
+                        return;
+                    }
+                    sessionState = null;
+                    _selectedDesigns = new Set();
+                    document.getElementById('designs-section').classList.remove('visible');
+                    document.getElementById('download-section').classList.remove('visible');
+                    document.getElementById('btn-new').style.display = 'none';
+                    document.getElementById('btn-generate-images').disabled = true;
+                    document.getElementById('btn-generate-images').textContent = '🖼 Згенерувати зображення';
+                    document.getElementById('btn-generate-from-selected').disabled = true;
+                    document.getElementById('selected-count').textContent = 'Вибрано: 0';
+                    document.getElementById('progress-log').style.display = 'none';
+                    document.getElementById('token-count').textContent = '0';
+                    document.getElementById('status-text').textContent = 'Ready';
+                    enableInput(true);
+                    document.getElementById('json-input').value = '';
+                    showToast('Розпочато нову презентацію', 'info');
+                }
+            );
+        }
+
+        // ---- Show downloaded files ----
+        function showDownloaded(files) {
+            const section = document.getElementById('download-section');
+            const list = document.getElementById('download-list');
+            section.classList.add('visible');
+            list.innerHTML = '';
+            if (!files || !files.length) return;
+            files.forEach(f => {
+                const filename = typeof f === 'string' ? f : f.filename;
+                const designName = typeof f === 'string' ? '' : f.design_name || '';
+                const url = `${API_BASE}/api/download-presentation/${filename}`;
+                const item = document.createElement('div');
+                item.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #eee;';
+                const label = designName ? designName + ' — ' + filename : filename;
+                item.innerHTML = `
+                    <span style="flex:1;font-size:14px;"></span>
+                    <a href="${url}" download="${filename}" class="btn-primary" style="text-decoration:none;font-size:13px;padding:6px 14px;">⬇ Завантажити</a>
+                `;
+                item.querySelector('span').textContent = label;
+                list.appendChild(item);
+            });
+        }
+
+        // ---- Auto-save raw input ----
+        let _saveInputTimeout = null;
+        function autoSaveInput() {
+            clearTimeout(_saveInputTimeout);
+            _saveInputTimeout = setTimeout(() => {
+                const input = document.getElementById('json-input').value;
+                if (input.trim()) {
+                    fetch(`${API_BASE}/api/save-raw-input`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: input
+                    }).catch(() => {});
+                }
+            }, 2000);
+        }
+
+        // ---- Save selected designs to server ----
+        let _saveSelectionTimeout = null;
+        function saveSelectionToServer() {
+            clearTimeout(_saveSelectionTimeout);
+            _saveSelectionTimeout = setTimeout(() => {
+                const indices = Array.from(_selectedDesigns);
+                fetch(`${API_BASE}/api/save-selection`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selected_indices: indices })
+                }).catch(() => {});
+            }, 300);
+        }
+
+        // ---- Init ----
+        window.addEventListener('DOMContentLoaded', () => {
+            restoreSession();
+            document.getElementById('json-input').addEventListener('input', autoSaveInput);
+        });
+
+        window.addEventListener('beforeunload', function(e) {
+            if (isWorking) {
+                e.preventDefault();
+                e.returnValue = 'Операція триває. Закрити сторінку?';
+                return e.returnValue;
+            }
+        });
     </script>
 </body>
 </html>

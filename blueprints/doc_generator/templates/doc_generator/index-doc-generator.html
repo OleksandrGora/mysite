@@ -736,47 +736,69 @@
             }).join('');
         }
         
-        // Model selection — зберігається лише на сервері
+// Model selection — зберігається лише на сервері
         async function loadModelSelection() {
             try {
                 const response = await fetch(`${API_BASE}/api/models`);
                 if (!response.ok) throw new Error('Failed to load models');
                 const data = await response.json();
-                
+
                 const select = document.getElementById('model-select');
                 select.innerHTML = ''; // Clear existing options
-                
-                // Використовуємо активну модель з сервера
+
+                // Use providers array from response for optgroup display
                 const selectedModel = data.selected;
-                
-                data.models.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model;
-                    option.textContent = model;
-                    option.selected = model === selectedModel;
-                    select.appendChild(option);
-                });
-                
+
+                if (data.providers && data.providers.length > 0) {
+                    data.providers.forEach(provider => {
+                        const group = document.createElement('optgroup');
+                        group.label = provider.name || provider.id;
+                        (provider.models || []).forEach(model => {
+                            const opt = document.createElement('option');
+                            opt.value = provider.id + '::' + model.apiModel;
+                            opt.textContent = provider.name + ' - ' + model.apiModel;
+                            opt.selected = opt.value === selectedModel;
+                            group.appendChild(opt);
+                        });
+                        select.appendChild(group);
+                    });
+                } else {
+                    // Fallback to flat models list
+                    data.models.forEach(model => {
+                        const opt = document.createElement('option');
+                        opt.value = model;
+                        // Try to show a friendly name
+                        if (model.includes('::')) {
+                            const parts = model.split('::');
+                            opt.textContent = parts[0] + ' - ' + parts[1];
+                        } else {
+                            opt.textContent = model;
+                        }
+                        opt.selected = model === selectedModel;
+                        select.appendChild(opt);
+                    });
+                }
+
                 log(`Модель завантажено: ${selectedModel}`, 'info');
             } catch (e) {
                 console.error('Failed to load model selection:', e);
             }
         }
-        
+
         async function saveModelSelection() {
             const select = document.getElementById('model-select');
             const model = select.value;
-            
+
             try {
                 const response = await fetch(`${API_BASE}/api/models/selected`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ model: model })
                 });
-                
+
                 if (!response.ok) throw new Error('Failed to save model');
-                
-                log(`Модель змінено на: ${model}`, 'success');
+
+                log(`Модель змінено на: ${model.replace('::', ' - ')}`, 'success');
             } catch (e) {
                 console.error('Failed to save model selection:', e);
                 showToast('Помилка збереження моделі', 'error');

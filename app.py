@@ -109,6 +109,7 @@ def save_global_settings():
 
         save_llm_config(data)
         current_app.config['LLM_CONFIG'] = data
+        logger.info(f"[GlobalSettings] Settings saved. providers={[p['id'] for p in data.get('providers', [])]}")
         return jsonify({'success': True})
     except Exception as e:
         logger.error(f"Failed to save global settings: {e}")

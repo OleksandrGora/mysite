@@ -2,8 +2,9 @@ import os
 import json
 import uuid
 import shutil
+import traceback
 from datetime import datetime, timezone
-from flask import request, jsonify, render_template, current_app, send_file
+from flask import request, jsonify, render_template, current_app, send_file, session
 from loguru import logger
 from . import my_ai_chat_bp
 from common_config import load_llm_config, get_ai_response, sanitize_settings_for_client, login_required
@@ -13,6 +14,8 @@ CHATS_ROOT = os.path.join(
     'ai-chats-history'
 )
 
+MODEL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'model_settings.json')
+
 ALLOWED_UPLOAD_MIMES = {
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
     'text/plain', 'text/markdown', 'text/csv', 'text/html',
@@ -20,6 +23,17 @@ ALLOWED_UPLOAD_MIMES = {
 }
 ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.txt', '.md', '.csv', '.html', '.json'}
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+
+
+@my_ai_chat_bp.before_request
+def log_request_info():
+    if request.method == 'POST':
+        logger.info(f"[AI_CHAT] {request.method} {request.path}")
+        if request.is_json:
+            data_preview = request.get_data(as_text=True)[:500]
+            logger.info(f"[AI_CHAT] Request data: {data_preview}")
+    else:
+        logger.info(f"[AI_CHAT] {request.method} {request.path}")
 
 
 def _get_chat_dir(chat_id):
@@ -119,25 +133,54 @@ def _rebuild_index():
         json.dump(index, f, indent=2)
 
 
+def _load_model_settings():
+    """Load blueprint-local model selection."""
+    if os.path.exists(MODEL_SETTINGS_FILE):
+        try:
+            with open(MODEL_SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def _save_model_settings(data):
+    """Save blueprint-local model selection."""
+    os.makedirs(os.path.dirname(MODEL_SETTINGS_FILE), exist_ok=True)
+    with open(MODEL_SETTINGS_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
 def _get_settings():
-    """Get LLM settings from app config or file."""
-    return current_app.config.get('LLM_CONFIG') or load_llm_config()
+    """Get LLM providers from global config."""
+    settings = current_app.config.get('LLM_CONFIG') or load_llm_config()
+    return settings
 
 
 def _get_active_provider_and_model(settings):
-    """Get active provider and model from settings."""
-    provider_id = settings.get('activeProviderId')
-    model_api_name = settings.get('activeModelId')
+    """Get active provider and model from blueprint-local settings + global providers."""
+    model_settings = _load_model_settings()
+    selected = model_settings.get('selectedModel', '')
     provider = None
     model = None
-    for p in settings.get('providers', []):
-        if p['id'] == provider_id:
-            provider = p
-            for m in p.get('models', []):
-                if m['apiModel'] == model_api_name:
-                    model = m
-                    break
-            break
+    if selected and '::' in selected:
+        provider_id, model_api_name = selected.split('::', 1)
+        logger.debug(f"[AI_CHAT] Looking up provider_id={provider_id}, model_api_name={model_api_name}")
+        for p in settings.get('providers', []):
+            if p['id'] == provider_id:
+                provider = p
+                logger.debug(f"[AI_CHAT] Found provider: {p['id']} ({p.get('name')}), available models: {[m['apiModel'] for m in p.get('models', [])]}")
+                for m in p.get('models', []):
+                    if m['apiModel'] == model_api_name:
+                        model = m
+                        break
+                if not model:
+                    logger.warning(f"[AI_CHAT] Model '{model_api_name}' not found in provider '{provider_id}'. Available models: {[m['apiModel'] for m in p.get('models', [])]}")
+                break
+        if not provider:
+            logger.warning(f"[AI_CHAT] Provider '{provider_id}' not found in settings. Available providers: {[p['id'] for p in settings.get('providers', [])]}")
+    else:
+        logger.warning(f"[AI_CHAT] No model selected in blueprint settings")
     return provider, model
 
 
@@ -145,19 +188,41 @@ def _get_active_provider_and_model(settings):
 @login_required
 def index():
     """Render chat UI."""
+    logger.info(f"[AI_CHAT] Rendering chat page for {session.get('email', 'unknown')}")
     settings = _get_settings()
-    return render_template('my_ai_chat/index.html', settings=sanitize_settings_for_client(settings))
+    model_settings = _load_model_settings()
+    selected_model = model_settings.get('selectedModel', '')
+    return render_template('my_ai_chat/index.html', settings=sanitize_settings_for_client(settings), selected_model=selected_model)
+
+
+@my_ai_chat_bp.route('/api/model-settings', methods=['POST'])
+@login_required
+def save_model_settings():
+    """Save blueprint-local model selection."""
+    try:
+        data = request.get_json()
+        if not data or 'selectedModel' not in data:
+            return jsonify({'error': 'selectedModel is required'}), 400
+        _save_model_settings({'selectedModel': data['selectedModel']})
+        logger.info(f"[AI_CHAT] Model settings saved: {data['selectedModel']}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"[AI_CHAT] Failed to save model settings: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @my_ai_chat_bp.route('/api/chats', methods=['GET'])
 @login_required
 def list_chats_api():
     """List all chats."""
+    logger.info(f"[AI_CHAT] Listing all chats")
     try:
         chats = _list_chats()
+        logger.info(f"[AI_CHAT] Found {len(chats)} chats")
         return jsonify({'chats': chats})
     except Exception as e:
-        logger.error(f"Failed to list chats: {e}")
+        logger.error(f"[AI_CHAT] Failed to list chats: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -165,13 +230,17 @@ def list_chats_api():
 @login_required
 def get_chat(chat_id):
     """Load a specific chat."""
+    logger.info(f"[AI_CHAT] Loading chat {chat_id}")
     try:
         chat = _load_chat(chat_id)
         if not chat:
+            logger.warning(f"[AI_CHAT] Chat {chat_id} not found")
             return jsonify({'error': 'Chat not found'}), 404
+        logger.debug(f"[AI_CHAT] Chat {chat_id} loaded: {chat.get('name')}, {len(chat.get('messages', []))} messages")
         return jsonify(chat)
     except Exception as e:
-        logger.error(f"Failed to load chat {chat_id}: {e}")
+        logger.error(f"[AI_CHAT] Failed to load chat {chat_id}: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -179,6 +248,7 @@ def get_chat(chat_id):
 @login_required
 def create_chat():
     """Create a new chat."""
+    logger.info(f"[AI_CHAT] Creating new chat")
     try:
         data = request.get_json() or {}
         chat_id = uuid.uuid4().hex
@@ -193,9 +263,11 @@ def create_chat():
             'previous_response_id': None
         }
         _save_chat(chat_id, chat)
+        logger.info(f"[AI_CHAT] Chat created: {chat_id} ({chat['name']})")
         return jsonify(chat), 201
     except Exception as e:
-        logger.error(f"Failed to create chat: {e}")
+        logger.error(f"[AI_CHAT] Failed to create chat: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -203,9 +275,11 @@ def create_chat():
 @login_required
 def update_chat(chat_id):
     """Update chat (rename, system message)."""
+    logger.info(f"[AI_CHAT] Updating chat {chat_id}")
     try:
         chat = _load_chat(chat_id)
         if not chat:
+            logger.warning(f"[AI_CHAT] Chat {chat_id} not found for update")
             return jsonify({'error': 'Chat not found'}), 404
         data = request.get_json() or {}
         if 'name' in data:
@@ -214,9 +288,11 @@ def update_chat(chat_id):
             chat['system_message'] = data['system_message']
         chat['updated_at'] = datetime.now(timezone.utc).isoformat()
         _save_chat(chat_id, chat)
+        logger.info(f"[AI_CHAT] Chat {chat_id} updated")
         return jsonify(chat)
     except Exception as e:
-        logger.error(f"Failed to update chat {chat_id}: {e}")
+        logger.error(f"[AI_CHAT] Failed to update chat {chat_id}: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -224,14 +300,19 @@ def update_chat(chat_id):
 @login_required
 def delete_chat(chat_id):
     """Delete a chat (remove entire folder)."""
+    logger.info(f"[AI_CHAT] Deleting chat {chat_id}")
     try:
         chat_dir = _get_chat_dir(chat_id)
         if os.path.exists(chat_dir):
             shutil.rmtree(chat_dir)
             _rebuild_index()
+            logger.info(f"[AI_CHAT] Chat {chat_id} deleted")
+        else:
+            logger.warning(f"[AI_CHAT] Chat {chat_id} directory not found for deletion")
         return jsonify({'success': True})
     except Exception as e:
-        logger.error(f"Failed to delete chat {chat_id}: {e}")
+        logger.error(f"[AI_CHAT] Failed to delete chat {chat_id}: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -239,26 +320,39 @@ def delete_chat(chat_id):
 @login_required
 def send_message(chat_id):
     """Send a message and get AI response."""
+    user_email = session.get('email', 'unknown')
+    logger.info(f"[AI_CHAT] send_message: chat={chat_id}, user={user_email}")
     try:
         chat = _load_chat(chat_id)
         if not chat:
+            logger.warning(f"[AI_CHAT] Chat {chat_id} not found for send_message")
             return jsonify({'error': 'Chat not found'}), 404
 
         data = request.get_json() or {}
         user_text = data.get('text', '')
         file_ids = data.get('file_ids', [])
 
+        logger.info(f"[AI_CHAT] Message from {user_email}: chat={chat_id}, text_len={len(user_text)}, files={len(file_ids)}")
+
         if not user_text and not file_ids:
+            logger.warning(f"[AI_CHAT] Empty message rejected for chat {chat_id}")
             return jsonify({'error': 'Text or files required'}), 400
 
         settings = _get_settings()
         provider, model = _get_active_provider_and_model(settings)
         if not provider:
+            model_settings = _load_model_settings()
+            logger.warning(f"[AI_CHAT] No active provider for chat {chat_id}. selectedModel={model_settings.get('selectedModel')}")
             return jsonify({'error': 'Не вибрано провайдера. Спочатку налаштуйте провайдера на сторінці /settings'}), 400
         if not model:
+            model_settings = _load_model_settings()
+            logger.warning(f"[AI_CHAT] No active model for chat {chat_id}. selectedModel={model_settings.get('selectedModel')}")
             return jsonify({'error': 'Не вибрано модель'}), 400
         if not provider.get('apiKey'):
+            logger.warning(f"[AI_CHAT] No API key for provider {provider['id']} ({provider.get('name')})")
             return jsonify({'error': f'Не вказано API ключ для {provider["name"]}'}), 400
+
+        logger.info(f"[AI_CHAT] Sending message via provider={provider['id']}, model={model['apiModel']}")
 
         # Build context
         context = []
@@ -306,6 +400,8 @@ def send_message(chat_id):
                         file_text += p['text']
                 user_content = user_text + file_text
 
+            logger.debug(f"[AI_CHAT] Files processed for chat {chat_id}: {len(file_ids)} files, has_images={has_images}")
+
         context.append({'role': 'user', 'content': user_content})
 
         # Add user message to chat
@@ -317,11 +413,16 @@ def send_message(chat_id):
 
         # Get AI response
         instructions = chat.get('system_message') or None
+        logger.debug(f"[AI_CHAT] Calling get_ai_response for chat {chat_id}, context_len={len(context)}")
+        logger.debug(f"[AI_CHAT] Request context: {json.dumps(context, ensure_ascii=False)[:1000]}")
         response_text, resp_id = get_ai_response(
             context, provider, model,
             instructions=instructions,
             chat_data=chat
         )
+
+        logger.info(f"[AI_CHAT] AI response received for chat {chat_id}: text_len={len(response_text)}, resp_id={resp_id}")
+        logger.debug(f"[AI_CHAT] Response text (first 500): {response_text[:500]!r}")
 
         # Add bot message
         chat['messages'].append({
@@ -342,9 +443,11 @@ def send_message(chat_id):
         })
 
     except ValueError as e:
+        logger.warning(f"[AI_CHAT] Validation error for chat {chat_id}: {e}")
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        logger.error(f"Failed to send message in chat {chat_id}: {e}", exc_info=True)
+        logger.error(f"[AI_CHAT] Failed to send message in chat {chat_id}: {e}", exc_info=True)
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -352,22 +455,29 @@ def send_message(chat_id):
 @login_required
 def upload_file():
     """Upload a file for the current message. Validates type and size."""
+    logger.info(f"[AI_CHAT] File upload request from {session.get('email', 'unknown')}")
     try:
         if 'file' not in request.files:
+            logger.warning("[AI_CHAT] Upload: No file in request")
             return jsonify({'error': 'No file provided'}), 400
 
         file = request.files['file']
         chat_id = request.form.get('chat_id', '')
 
         if not chat_id:
+            logger.warning("[AI_CHAT] Upload: No chat_id provided")
             return jsonify({'error': 'chat_id is required'}), 400
 
         if not file or not file.filename:
+            logger.warning("[AI_CHAT] Upload: Empty file")
             return jsonify({'error': 'Empty file'}), 400
 
         ext = os.path.splitext(file.filename)[1].lower()
         if ext not in ALLOWED_UPLOAD_EXTS:
+            logger.warning(f"[AI_CHAT] Upload: Invalid extension '{ext}' for {file.filename}")
             return jsonify({'error': f'File type "{ext}" not allowed. Supported: {", ".join(sorted(ALLOWED_UPLOAD_EXTS))}'}), 400
+
+        logger.info(f"[AI_CHAT] Upload: file={file.filename}, ext={ext}, chat_id={chat_id}")
 
         import tempfile as tmpfile_module
         pos = file.tell()
@@ -378,15 +488,18 @@ def upload_file():
             content = file.read(MAX_UPLOAD_SIZE + 1)
             file.seek(0)
             if len(content) > MAX_UPLOAD_SIZE:
+                logger.warning(f"[AI_CHAT] Upload: File too large ({len(content)} bytes)")
                 return jsonify({'error': f'File exceeds maximum size of {MAX_UPLOAD_SIZE // (1024*1024)} MB'}), 400
         else:
             size = file.tell()
             file.seek(pos)
             if size > MAX_UPLOAD_SIZE:
+                logger.warning(f"[AI_CHAT] Upload: File too large ({size} bytes)")
                 return jsonify({'error': f'File exceeds maximum size of {MAX_UPLOAD_SIZE // (1024*1024)} MB'}), 400
 
         chat = _load_chat(chat_id)
         if not chat:
+            logger.warning(f"[AI_CHAT] Upload: Chat {chat_id} not found")
             return jsonify({'error': 'Chat not found'}), 404
 
         from werkzeug.utils import secure_filename
@@ -398,14 +511,18 @@ def upload_file():
         file_path = os.path.join(files_dir, file_id)
         file.save(file_path)
 
+        file_size = os.path.getsize(file_path)
+        logger.info(f"[AI_CHAT] Upload saved: file_id={file_id}, size={file_size}, path={file_path}")
+
         return jsonify({
             'file_id': file_id,
             'filename': file.filename,
-            'size': os.path.getsize(file_path)
+            'size': file_size
         })
 
     except Exception as e:
-        logger.error(f"Failed to upload file: {e}")
+        logger.error(f"[AI_CHAT] Failed to upload file: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 
@@ -413,13 +530,16 @@ def upload_file():
 @login_required
 def serve_file(chat_id, file_id):
     """Serve an uploaded file. Forces download to prevent XSS via uploaded HTML/JS."""
+    logger.info(f"[AI_CHAT] Serving file: chat={chat_id}, file={file_id}")
     try:
         safe_id = os.path.basename(os.path.normpath(file_id))
         chat_dir = _get_chat_dir(chat_id)
         file_path = os.path.join(chat_dir, 'files', safe_id)
         if not os.path.exists(file_path):
+            logger.warning(f"[AI_CHAT] File not found: {file_path}")
             return jsonify({'error': 'File not found'}), 404
         return send_file(file_path, as_attachment=True)
     except Exception as e:
-        logger.error(f"Failed to serve file: {e}")
+        logger.error(f"[AI_CHAT] Failed to serve file: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500

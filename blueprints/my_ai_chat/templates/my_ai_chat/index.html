@@ -94,7 +94,7 @@
         <div><label>Message Size (tokens):</label> <span id="token-count" style="font-family:monospace">0</span></div>
       </div>
       <button id="new-chat">Новий чат</button>
-      <textarea id="system-message" placeholder="Системне повідомлення..."></textarea>
+      <textarea id="system-message" placeholder="Системний промпт..."></textarea>
       <ul id="chat-list"></ul>
     </div>
     <div class="chat-area">
@@ -115,6 +115,7 @@
 
   <script>
     const settings = {{ settings | tojson }};
+    const selectedModel = {{ selected_model | tojson }};
 
     let chats = [];
     let currentChatId = null;
@@ -138,20 +139,28 @@
     }
 
     // ========== Model selector ==========
-    function populateModelSelect(settings) {
+    function populateModelSelect(settings, selectedModel) {
       const select = document.getElementById('model-select');
       select.innerHTML = '';
+      let hasSelected = false;
       for (const provider of settings.providers) {
         const group = document.createElement('optgroup');
         group.label = provider.name;
         for (const model of provider.models) {
           const opt = document.createElement('option');
-          opt.value = provider.id + '::' + model.apiModel;
+          const val = provider.id + '::' + model.apiModel;
+          opt.value = val;
           opt.textContent = provider.name + ' - ' + model.apiModel;
-          if (provider.id === settings.activeProviderId && model.apiModel === settings.activeModelId) opt.selected = true;
+          if (val === selectedModel) {
+            opt.selected = true;
+            hasSelected = true;
+          }
           group.appendChild(opt);
         }
         select.appendChild(group);
+      }
+      if (!hasSelected && select.options.length > 0) {
+        select.options[0].selected = true;
       }
     }
 
@@ -551,7 +560,7 @@
     // ========== Init ==========
     document.addEventListener('DOMContentLoaded', () => {
       marked.setOptions({ breaks: true });
-      populateModelSelect(settings);
+      populateModelSelect(settings, selectedModel);
 
       document.getElementById('new-chat').addEventListener('click', () => createNewChat());
       document.getElementById('send-btn').addEventListener('click', sendMessage);
@@ -565,9 +574,15 @@
       });
       document.getElementById('file-input').addEventListener('change', handleFileSelect);
       document.getElementById('file-btn').addEventListener('click', () => document.getElementById('file-input').click());
-      document.getElementById('model-select').addEventListener('change', () => {
-        const {providerId, modelId} = getActiveProviderAndModel(settings);
-        // Don't persist model changes to settings here; let the user use /settings page
+      document.getElementById('model-select').addEventListener('change', async () => {
+        const val = document.getElementById('model-select').value;
+        try {
+          await fetch('/ai-chat/api/model-settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ selectedModel: val })
+          });
+        } catch(e) { console.error('Failed to save model selection:', e); }
       });
 
       autoResizeTextarea(document.getElementById('user-input'));

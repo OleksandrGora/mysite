@@ -15,14 +15,48 @@ DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-pro')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
 
-# Available Models (hardcoded list)
-AVAILABLE_MODELS = [
-    'gemini-2.5-pro',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gpt-5-nano',
-    'deepseek-v4-flash'
-]
+# Global LLM config path
+LLM_CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'common', 'llm-config.json')
+
+def load_llm_config() -> dict:
+    """Load global LLM config from llm-config.json."""
+    path = os.path.abspath(LLM_CONFIG_PATH)
+    if not os.path.exists(path):
+        return {'providers': []}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Failed to load LLM config from {path}: {e}")
+        return {'providers': []}
+
+def get_available_models_from_config() -> list:
+    """Get list of 'providerId::apiModel' strings from global LLM config."""
+    config = load_llm_config()
+    models = []
+    for provider in config.get('providers', []):
+        pid = provider.get('id')
+        for model in provider.get('models', []):
+            api_model = model.get('apiModel')
+            if pid and api_model:
+                models.append(f"{pid}::{api_model}")
+    return models
+
+def get_providers_for_display() -> list:
+    """Get providers list formatted for UI (with name and models)."""
+    config = load_llm_config()
+    return config.get('providers', [])
+
+# Available Models (dynamically loaded from global config)
+AVAILABLE_MODELS = get_available_models_from_config()
+if not AVAILABLE_MODELS:
+    AVAILABLE_MODELS = [
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+        'gpt-5-nano',
+        'deepseek-v4-flash'
+    ]
 
 # Model settings file path
 MODEL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'model_settings.json')
@@ -43,14 +77,32 @@ def is_gemini_model(model_name: str) -> bool:
 
 def is_openai_model(model_name: str) -> bool:
     """Check if model is from OpenAI."""
-    return model_name.startswith('gpt-')
+    return model_name.startswith('gpt-') or model_name.startswith('gpt-image-')
 
 def is_deepseek_model(model_name: str) -> bool:
     """Check if model is from DeepSeek."""
     return model_name.startswith('deepseek-')
 
 def get_model_provider(model_name: str) -> str:
-    """Get the provider name for the model."""
+    """Get the provider name for the model.
+    First checks the global LLM config for the provider id,
+    then falls back to prefix-based detection.
+    """
+    # Try to find in global config
+    config = load_llm_config()
+    for provider in config.get('providers', []):
+        for model in provider.get('models', []):
+            if model.get('apiModel') == model_name:
+                pid = provider.get('id', '')
+                if pid == 'deepseek':
+                    return 'deepseek'
+                ptype = provider.get('type', '')
+                if ptype and 'openai' in ptype:
+                    return 'openai'
+                if ptype == 'gemini' or pid == 'gemini':
+                    return 'gemini'
+                return 'openai'
+    # Fallback to prefix-based detection
     if is_gemini_model(model_name):
         return 'gemini'
     elif is_openai_model(model_name):
@@ -58,7 +110,16 @@ def get_model_provider(model_name: str) -> str:
     elif is_deepseek_model(model_name):
         return 'deepseek'
     else:
-        return 'unknown'
+        return 'openai'
+
+def get_provider_config_for_model(model_name: str) -> dict:
+    """Get the full provider config dict for a given model name from global LLM config."""
+    config = load_llm_config()
+    for provider in config.get('providers', []):
+        for model in provider.get('models', []):
+            if model.get('apiModel') == model_name:
+                return provider
+    return {}
 
 
 def needs_max_completion_tokens(model_name: str) -> bool:
@@ -302,7 +363,9 @@ def validate_config():
 
 
 def save_selected_model(model: str):
-    """Save selected model to settings file."""
+    """Save selected model to settings file.
+    Accepts 'providerId::apiModel' or plain model name format.
+    """
     try:
         with open(MODEL_SETTINGS_FILE, 'w', encoding='utf-8') as f:
             json.dump({'selected_model': model}, f)
@@ -311,13 +374,33 @@ def save_selected_model(model: str):
 
 
 def get_selected_model() -> str:
-    """Get selected model from settings file, fallback to REASONING_MODEL env."""
+    """Get selected model from settings file, fallback to REASONING_MODEL env.
+    Returns just the model name (e.g. 'gemini-2.5-flash-lite') for backward compatibility.
+    """
     try:
         if os.path.exists(MODEL_SETTINGS_FILE):
             with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 model = data.get('selected_model')
-                if model and model in AVAILABLE_MODELS:
+                if model:
+                    # Support both 'providerId::apiModel' and plain model name
+                    if '::' in model:
+                        _, api_model = model.split('::', 1)
+                        return api_model
+                    return model
+    except Exception as e:
+        print(f"Failed to load selected model: {e}")
+    return REASONING_MODEL
+
+
+def get_selected_full_model() -> str:
+    """Get selected model in full 'providerId::apiModel' format if available."""
+    try:
+        if os.path.exists(MODEL_SETTINGS_FILE):
+            with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                model = data.get('selected_model', '')
+                if model:
                     return model
     except Exception as e:
         print(f"Failed to load selected model: {e}")

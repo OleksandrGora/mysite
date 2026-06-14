@@ -30,7 +30,7 @@ from .config import (
     ANALYSIS_PROMPT, RAG_PROMPT_TEMPLATE, AVAILABLE_MODELS, REASONING_MODEL,
     save_selected_model, get_selected_model, get_openai_completion_kwargs,
     GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE,
-    get_model_provider
+    get_model_provider, get_providers_for_display, get_selected_full_model
 )
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
@@ -479,10 +479,13 @@ def delete_debug_log():
 @doc_generator_bp.route('/api/models', methods=['GET'])
 @login_required
 def get_available_models():
-    """Get list of available models."""
+    """Get list of available models with providers."""
+    providers = get_providers_for_display()
+    selected = get_selected_full_model()
     return jsonify({
+        'providers': providers,
         'models': AVAILABLE_MODELS,
-        'selected': get_current_model()
+        'selected': selected
     })
 
 
@@ -500,11 +503,24 @@ def set_current_model():
     data = request.get_json()
     if not data or 'model' not in data:
         return jsonify({'error': 'Model is required'}), 400
-    
+
     model = data.get('model')
+    # Accept both 'providerId::apiModel' and plain model name
     if model not in AVAILABLE_MODELS:
-        return jsonify({'error': f'Invalid model: {model}'}), 400
-    
+        # Check if it's a plain model name (backward compat)
+        config_providers = get_providers_for_display()
+        found = False
+        for provider in config_providers:
+            for m in provider.get('models', []):
+                if m.get('apiModel') == model:
+                    found = True
+                    model = f"{provider['id']}::{model}"
+                    break
+            if found:
+                break
+        if not found:
+            return jsonify({'error': f'Invalid model: {model}'}), 400
+
     # Save selected model to settings file
     save_selected_model(model)
     return jsonify({'status': 'success', 'model': model})

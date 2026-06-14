@@ -46,9 +46,7 @@ DEFAULT_SETTINGS = {
                 {"apiModel": "gemini-1.5-flash-002"}
             ]
         }
-    ],
-    "activeProviderId": "openai",
-    "activeModelId": "gpt-4o-mini-2024-07-18"
+    ]
 }
 
 
@@ -202,14 +200,9 @@ def _convert_to_responses_format(parts):
     return converted
 
 
-def call_openai_responses_api(input_data, api_key, model, instructions=None, previous_response_id=None):
-    """Call OpenAI Responses API for GPT models.
-
-    input_data can be:
-    - A string (just the new user message) for continuation
-    - An array of items (full context) for new conversations
-    """
-    url = "https://api.openai.com/v1/responses"
+def call_openai_responses_api(input_data, api_key, model, instructions=None, previous_response_id=None, api_url=None):
+    """Call OpenAI Responses API for GPT models."""
+    url = api_url or "https://api.openai.com/v1/responses"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
@@ -223,10 +216,42 @@ def call_openai_responses_api(input_data, api_key, model, instructions=None, pre
     if previous_response_id:
         payload["previous_response_id"] = previous_response_id
 
+    logger.info(f"[call_openai_responses_api] Sending request: model={model}, input_data={json.dumps(input_data, ensure_ascii=False)[:500]}")
     response = requests.post(url, json=payload, headers=headers, timeout=120)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        try:
+            error_body = response.content.decode('utf-8', errors='replace')
+        except Exception:
+            error_body = str(response.content)
+        raise requests.HTTPError(f"{e}. Response body: {error_body}", response=response)
     data = response.json()
-    return data.get("output_text", ""), data.get("id")
+    logger.info(f"[call_openai_responses_api] Raw response keys: {list(data.keys())}")
+    output_text = data.get("output_text")
+    if output_text is None:
+        output = data.get("output", [])
+        logger.info(f"[call_openai_responses_api] output items count={len(output)}")
+        for i, item in enumerate(output):
+            logger.info(f"[call_openai_responses_api] output[{i}]: type={item.get('type')}, role={item.get('role')}, content_count={len(item.get('content', []) or [])}")
+            if isinstance(item, dict) and item.get("type") == "message":
+                content = item.get("content", []) or []
+                for j, part in enumerate(content):
+                    logger.info(f"[call_openai_responses_api] output[{i}].content[{j}]: type={part.get('type')}, has_text={'text' in part}")
+                if item.get("role") == "assistant":
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "output_text":
+                            output_text = part.get("text", "")
+                            break
+                    if output_text is None:
+                        for part in content:
+                            if isinstance(part, dict) and "text" in part:
+                                output_text = part["text"]
+                                break
+        if output_text is None:
+            output_text = ""
+    logger.info(f"[call_openai_responses_api] Response text (first 200): {output_text[:200]!r}")
+    return output_text, data.get("id")
 
 
 def call_openai_compatible_api(context, api_url, api_key, model):
@@ -244,7 +269,14 @@ def call_openai_compatible_api(context, api_url, api_key, model):
         "Authorization": f"Bearer {api_key}"
     }
     response = requests.post(api_url, json=payload, headers=headers, timeout=120)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        try:
+            error_body = response.content.decode('utf-8', errors='replace')
+        except Exception:
+            error_body = str(response.content)
+        raise requests.HTTPError(f"{e}. Response body: {error_body}", response=response)
     data = response.json()
     return data["choices"][0]["message"]["content"]
 
@@ -342,7 +374,8 @@ def get_ai_response(context, provider, model, instructions=None, chat_data=None)
         text, resp_id = call_openai_responses_api(
             input_data, provider["apiKey"], model["apiModel"],
             instructions=instructions,
-            previous_response_id=previous_response_id
+            previous_response_id=previous_response_id,
+            api_url=provider.get("apiUrl")
         )
         return text, resp_id
 

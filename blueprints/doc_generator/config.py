@@ -4,6 +4,12 @@ Configuration for document generator service.
 import os
 import json
 from dotenv import load_dotenv
+from common_config import (
+    load_llm_config, get_available_models_from_config, get_model_provider,
+    get_provider_config_for_model, needs_max_completion_tokens,
+    get_openai_completion_kwargs, is_gemini_model, is_openai_model,
+    is_deepseek_model, _is_temperature_restricted_model
+)
 
 load_dotenv()
 
@@ -14,49 +20,6 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 REASONING_MODEL = os.getenv('REASONING_MODEL', 'gemini-2.5-pro')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'models/text-embedding-004')
-
-# Global LLM config path
-LLM_CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'common', 'llm-config.json')
-
-def load_llm_config() -> dict:
-    """Load global LLM config from llm-config.json."""
-    path = os.path.abspath(LLM_CONFIG_PATH)
-    if not os.path.exists(path):
-        return {'providers': []}
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Failed to load LLM config from {path}: {e}")
-        return {'providers': []}
-
-def get_available_models_from_config() -> list:
-    """Get list of 'providerId::apiModel' strings from global LLM config."""
-    config = load_llm_config()
-    models = []
-    for provider in config.get('providers', []):
-        pid = provider.get('id')
-        for model in provider.get('models', []):
-            api_model = model.get('apiModel')
-            if pid and api_model:
-                models.append(f"{pid}::{api_model}")
-    return models
-
-def get_providers_for_display() -> list:
-    """Get providers list formatted for UI (with name and models)."""
-    config = load_llm_config()
-    return config.get('providers', [])
-
-# Available Models (dynamically loaded from global config)
-AVAILABLE_MODELS = get_available_models_from_config()
-if not AVAILABLE_MODELS:
-    AVAILABLE_MODELS = [
-        'gemini-2.5-pro',
-        'gemini-2.5-flash',
-        'gemini-2.5-flash-lite',
-        'gpt-5-nano',
-        'deepseek-v4-flash'
-    ]
 
 # Model settings file path
 MODEL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'model_settings.json')
@@ -70,147 +33,31 @@ TEMPERATURE = 0.3  # Lower for more consistent output
 ANALYSIS_CHUNK_SIZE = 100000  # Max chars per chunk when splitting large documents
 ANALYSIS_MAX_CHUNKS = 10  # Max chunks as a safeguard
 
-# Model Provider Detection
-def is_gemini_model(model_name: str) -> bool:
-    """Check if model is from Google Gemini."""
-    return model_name.startswith('gemini-')
-
-def is_openai_model(model_name: str) -> bool:
-    """Check if model is from OpenAI."""
-    return model_name.startswith('gpt-') or model_name.startswith('gpt-image-')
-
-def is_deepseek_model(model_name: str) -> bool:
-    """Check if model is from DeepSeek."""
-    return model_name.startswith('deepseek-')
-
-def get_model_provider(model_name: str) -> str:
-    """Get the provider name for the model.
-    First checks the global LLM config for the provider id,
-    then falls back to prefix-based detection.
-    """
-    # Try to find in global config
+# Available Models (dynamically loaded from global config)
+def get_available_models():
     config = load_llm_config()
-    for provider in config.get('providers', []):
-        for model in provider.get('models', []):
-            if model.get('apiModel') == model_name:
-                pid = provider.get('id', '')
-                if pid == 'deepseek':
-                    return 'deepseek'
-                ptype = provider.get('type', '')
-                if ptype and 'openai' in ptype:
-                    return 'openai'
-                if ptype == 'gemini' or pid == 'gemini':
-                    return 'gemini'
-                return 'openai'
-    # Fallback to prefix-based detection
-    if is_gemini_model(model_name):
-        return 'gemini'
-    elif is_openai_model(model_name):
-        return 'openai'
-    elif is_deepseek_model(model_name):
-        return 'deepseek'
-    else:
-        return 'openai'
+    models = get_available_models_from_config(config)
+    if not models:
+        return [
+            'gemini-2.5-pro',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gpt-5-nano',
+            'deepseek-v4-flash'
+        ]
+    return models
 
-def get_provider_config_for_model(model_name: str) -> dict:
-    """Get the full provider config dict for a given model name from global LLM config."""
+
+AVAILABLE_MODELS = get_available_models()
+
+
+def get_providers_for_display() -> list:
+    """Get providers list formatted for UI (with name and models)."""
     config = load_llm_config()
-    for provider in config.get('providers', []):
-        for model in provider.get('models', []):
-            if model.get('apiModel') == model_name:
-                return provider
-    return {}
+    return config.get('providers', [])
 
-
-def needs_max_completion_tokens(model_name: str) -> bool:
-    """
-    Check if the model requires 'max_completion_tokens' instead of 'max_tokens'.
-    
-    Newer OpenAI models (GPT-4o, GPT-5, o-series) deprecated 'max_tokens'
-    and require 'max_completion_tokens' instead.
-    """
-    model_lower = model_name.lower()
-    # Models that require max_completion_tokens:
-    # - gpt-4o* (gpt-4o, gpt-4o-mini, gpt-4o-audio, etc.)
-    # - gpt-4.1* (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
-    # - gpt-5* (gpt-5, gpt-5-nano, etc.)
-    # - o-series (o1, o1-mini, o3, o3-mini, etc.)
-    # - chatgpt-* models
-    return (
-        model_lower.startswith('gpt-4o')
-        or model_lower.startswith('gpt-4.1')
-        or model_lower.startswith('gpt-5')
-        or model_lower.startswith('o1')
-        or model_lower.startswith('o3')
-        or model_lower.startswith('chatgpt-')
-    )
-
-
-def _is_temperature_restricted_model(model_name: str) -> bool:
-    """
-    Check if the model only supports temperature=1 (the default).
-    
-    Newer models like GPT-5 and o-series only accept the default
-    temperature value (1.0) and reject custom values.
-    """
-    model_lower = model_name.lower()
-    return (
-        model_lower.startswith('gpt-5')
-        or model_lower.startswith('o1')
-        or model_lower.startswith('o3')
-        or model_lower.startswith('chatgpt-')
-    )
-
-
-def get_openai_completion_kwargs(model_name: str, max_tokens: int, temperature: float) -> dict:
-    """
-    Get kwargs for OpenAI/DeepSeek chat.completions.create, handling compatibility:
-    - 'max_tokens' vs 'max_completion_tokens' parameter naming
-    - Temperature restrictions on newer models
-    
-    Args:
-        model_name: The model identifier
-        max_tokens: Desired max tokens / max completion tokens value
-        temperature: Temperature value
-        
-    Returns:
-        Dict of kwargs to pass to chat.completions.create
-    """
-    kwargs = {}
-    
-    # DeepSeek: uses standard OpenAI-compatible API (max_tokens + temperature)
-    if is_deepseek_model(model_name):
-        kwargs['temperature'] = temperature
-        kwargs['max_tokens'] = max_tokens
-        return kwargs
-    
-    # Temperature: skip for models that only support default (1.0),
-    # otherwise pass the custom value
-    if not _is_temperature_restricted_model(model_name):
-        kwargs['temperature'] = temperature
-    
-    # Max tokens:
-    # - Reasoning models (gpt-5*, o1*, o3*): max_completion_tokens includes
-    #   internal reasoning tokens. Setting a small value causes empty output
-    #   because all tokens are consumed by reasoning. Better to NOT set it
-    #   and let the model use its own default allocation.
-    # - Other new models (gpt-4o*, gpt-4.1*): use max_completion_tokens
-    # - Legacy models: use max_tokens
-    if _is_temperature_restricted_model(model_name):
-        # Reasoning models: skip max_completion_tokens to avoid empty responses
-        pass
-    elif needs_max_completion_tokens(model_name):
-        kwargs['max_completion_tokens'] = max_tokens
-    else:
-        kwargs['max_tokens'] = max_tokens
-    
-    return kwargs
 
 # RAG Query Prompt Template
-# This template is used for the interactive RAG analysis against processed sources.
-# Placeholders:
-#   {context} — formatted chunks from ChromaDB (via Retriever.format_context_for_llm)
-#   {user_prompt} — the user's original question
 RAG_PROMPT_TEMPLATE = """Ти — аналітик, який відповідає на запитання на основі наданих фрагментів документів.
 Відповідай українською мовою.
 Якщо фрагментів недостатньо для повної відповіді, чесно скажи про це. Мінімум зайвої інформації, без посилань на джерело інформації.
@@ -279,13 +126,6 @@ ANALYSIS_PROMPT = """Проаналізуй структуру документ�
 {text_content}
 
 Відповідь українською."""
-
-# NOTE: Old architecture prompts moved to old_architecture/config_old.py:
-# - SECTION_GENERATION_PROMPT
-# - TABLE_GENERATION_PROMPT
-# - PLANNER_ANALYSIS_PROMPT
-# - PLANNER_GENERATION_PROMPT
-# - LLM_ANALYSIS_PROMPT
 
 FULL_DOCUMENT_GENERATION_PROMPT = """Ти — експерт з написання документації українською мовою.
 
@@ -356,7 +196,7 @@ FULL_DOCUMENT_GENERATION_PROMPT = """Ти — експерт з написанн
 Поверни ТІЛЬКИ Markdown документ, без додаткових пояснень.
 """
 
-# Validate API key
+
 def validate_config():
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY not set in .env file")
@@ -383,7 +223,6 @@ def get_selected_model() -> str:
                 data = json.load(f)
                 model = data.get('selected_model')
                 if model:
-                    # Support both 'providerId::apiModel' and plain model name
                     if '::' in model:
                         _, api_model = model.split('::', 1)
                         return api_model
@@ -394,13 +233,24 @@ def get_selected_model() -> str:
 
 
 def get_selected_full_model() -> str:
-    """Get selected model in full 'providerId::apiModel' format if available."""
+    """Get selected model in full 'providerId::apiModel' format if available.
+    If stored value does not contain '::', attempt to find the provider
+    from llm-config.json to construct the full string.
+    """
     try:
         if os.path.exists(MODEL_SETTINGS_FILE):
             with open(MODEL_SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 model = data.get('selected_model', '')
                 if model:
+                    if '::' in model:
+                        return model
+                    # Migration: plain model name, look up provider from config
+                    config = load_llm_config()
+                    for provider in config.get('providers', []):
+                        for m in provider.get('models', []):
+                            if m.get('apiModel') == model:
+                                return f"{provider['id']}::{model}"
                     return model
     except Exception as e:
         print(f"Failed to load selected model: {e}")

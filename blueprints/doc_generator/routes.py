@@ -29,8 +29,7 @@ from .parsers.source_parser import parse_sources_with_metadata
 from .config import (
     ANALYSIS_PROMPT, RAG_PROMPT_TEMPLATE, AVAILABLE_MODELS, REASONING_MODEL,
     save_selected_model, get_selected_model, get_openai_completion_kwargs,
-    GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE,
-    get_model_provider, get_providers_for_display, get_selected_full_model
+    TEMPERATURE, get_providers_for_display, get_selected_full_model, get_available_models
 )
 from .task_manager import (
     ensure_directories, get_unique_task_folder, create_task_info, save_task_info,
@@ -534,21 +533,21 @@ def set_current_model():
 def analyze_document_task(self, task_id, folder_path, analysis_prompt):
     """Celery task for document analysis using LLM."""
     from loguru import logger
-    from .config import GEMINI_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, TEMPERATURE, ANALYSIS_CHUNK_SIZE, ANALYSIS_MAX_CHUNKS, get_model_provider
-    from google import genai
-    
+    from common_config import load_llm_config, get_api_key_for_provider, get_model_provider as common_get_model_provider
+    from .config import TEMPERATURE, ANALYSIS_CHUNK_SIZE, ANALYSIS_MAX_CHUNKS
+
     # Use the model selected by user, fallback to env variable
     selected_model = get_selected_model()
-    
+
     logger.info(f"[ANALYZE] Starting analysis for task {task_id}")
     logger.info(f"[ANALYZE] Folder path: {folder_path}")
-    
+
     # Write to debug log for UI visibility
     attempt_num = self.request.retries + 1
     attempt_suffix = f" (Спроба {attempt_num})" if attempt_num > 1 else ""
     append_debug_log(f"[CELERY] Аналіз запущено для завдання {task_id}{attempt_suffix}")
     append_debug_log(f"[CELERY] Модель для аналізу: {selected_model}")
-    
+
     try:
         update_task_status(folder_path, 'analyzing')
         update_task_progress(folder_path, 'Завантаження інформації про завдання...', 5)
@@ -643,8 +642,16 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         
         # Call LLM for analysis
         logger.info(f"[ANALYZE] Initializing LLM client...")
-        provider = get_model_provider(selected_model)
-        logger.info(f"[ANALYZE] Using provider: {provider} for model: {selected_model}")
+        config = load_llm_config()
+        provider_name, provider = common_get_model_provider(config, selected_model)
+        logger.info(f"[ANALYZE] Using provider: {provider_name} for model: {selected_model}")
+
+        if not provider:
+            raise ValueError(f"Provider not found for model: {selected_model}")
+
+        api_key = get_api_key_for_provider(provider)
+        if not api_key:
+            raise ValueError(f"API key not configured for provider: {provider.get('id', 'unknown')}")
         
         # Debug: check types before format
         logger.info(f"[ANALYZE] ANALYSIS_PROMPT type: {type(ANALYSIS_PROMPT)}")
@@ -664,10 +671,11 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
         from .reasoning.generator import save_ai_response
         
         def _call_llm(prompt_text: str) -> str:
-            if provider == 'gemini':
-                if not GEMINI_API_KEY:
+            if provider_name == 'gemini':
+                if not api_key:
                     raise ValueError("Gemini API key not configured")
-                client = genai.Client(api_key=GEMINI_API_KEY)
+                from google import genai
+                client = genai.Client(api_key=api_key)
                 logger.info(f"[ANALYZE] Calling Gemini model: {selected_model}...")
                 response = client.models.generate_content(
                     model=selected_model,
@@ -676,11 +684,11 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                 )
                 return response.text
 
-            elif provider == 'openai':
-                if not OPENAI_API_KEY:
+            elif provider_name == 'openai':
+                if not api_key:
                     raise ValueError("OpenAI API key not configured")
                 from openai import OpenAI
-                client = OpenAI(api_key=OPENAI_API_KEY)
+                client = OpenAI(api_key=api_key)
                 openai_kwargs = get_openai_completion_kwargs(
                     model_name=selected_model,
                     max_tokens=16384,
@@ -706,12 +714,12 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                     )
                 return raw_content
 
-            elif provider == 'deepseek':
-                if not DEEPSEEK_API_KEY:
+            elif provider_name == 'deepseek':
+                if not api_key:
                     raise ValueError("DeepSeek API key not configured")
                 from openai import OpenAI
                 client = OpenAI(
-                    api_key=DEEPSEEK_API_KEY,
+                    api_key=api_key,
                     base_url="https://api.deepseek.com"
                 )
                 deepseek_kwargs = get_openai_completion_kwargs(
@@ -739,7 +747,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                 return raw_content
 
             else:
-                raise ValueError(f"Unsupported model provider: {provider}")
+                raise ValueError(f"Unsupported model provider: {provider_name}")
 
         if len(text_content) > ANALYSIS_CHUNK_SIZE:
             from .parsers.chunked_analysis import split_text_into_chunks, merge_analyses

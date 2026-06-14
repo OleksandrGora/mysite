@@ -7,68 +7,91 @@ import threading
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for, Response, stream_with_context
 from loguru import logger
-from common_config import login_required
+from common_config import (
+    login_required, load_llm_config, sanitize_settings_for_client,
+    generate_image, get_ai_response,
+    OPENAI_IMAGE_QUALITY, OPENAI_IMAGE_SIZE,
+    GEMINI_IMAGE_TEMPERATURE, GEMINI_IMAGE_THINKING_BUDGET
+)
 from . import pptx_generator_bp
 from .create_pptx import create_presentation
 
 # ---------------------------------------------------------------------------
-# Налаштування генерації зображень OpenAI
+# Model settings — зберігає вибір моделей для цього блюпринту
 # ---------------------------------------------------------------------------
 
-# gpt-image-1-mini   — швидка, дешева (за замовчуванням)
-# gpt-image-1        — якісніша, повільніша, дорожча
-# gpt-image-1.5      — найновіша, краще слідує інструкціям
-OPENAI_IMAGE_MODEL = "gpt-image-1-mini"
+MODEL_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'model_settings.json')
 
-# "low" / "medium" / "high"
-OPENAI_IMAGE_QUALITY = "medium"
 
-# "1024x1024" / "1536x1024" / "1024x1536"
-OPENAI_IMAGE_SIZE = "1024x1024"
+def _load_model_settings():
+    """Load blueprint-local model selection."""
+    if os.path.exists(MODEL_SETTINGS_FILE):
+        try:
+            with open(MODEL_SETTINGS_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def _save_model_settings(data):
+    """Save blueprint-local model selection."""
+    os.makedirs(os.path.dirname(MODEL_SETTINGS_FILE), exist_ok=True)
+    with open(MODEL_SETTINGS_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def _get_settings():
+    """Get LLM providers from global config."""
+    return current_app.config.get('LLM_CONFIG') or load_llm_config()
+
+
+def _get_active_provider_and_model(settings, model_key):
+    """Get (provider_dict, model_dict) from stored model selection.
+
+    model_key: 'textModel' or 'imageModel'
+    Returns (provider, model) or (None, None).
+    """
+    model_settings = _load_model_settings()
+    selected = model_settings.get(model_key, '')
+    provider = None
+    model = None
+    if selected and '::' in selected:
+        provider_id, model_api_name = selected.split('::', 1)
+        for p in settings.get('providers', []):
+            if p['id'] == provider_id:
+                provider = p
+                for m in p.get('models', []):
+                    if m['apiModel'] == model_api_name:
+                        model = m
+                        break
+                break
+    # Fallback to first available provider+model
+    if not provider or not model:
+        for p in settings.get('providers', []):
+            if p.get('models'):
+                provider = p
+                model = p['models'][0]
+                break
+    return provider, model
+
+
+def _get_text_model_info(settings):
+    """Get (provider_dict, model_dict) for text generation."""
+    return _get_active_provider_and_model(settings, 'textModel')
+
+
+def _get_image_model_info(settings):
+    """Get (provider_dict, model_dict) for image generation."""
+    return _get_active_provider_and_model(settings, 'imageModel')
+
+
+# ---------------------------------------------------------------------------
+# Налаштування генерації
+# ---------------------------------------------------------------------------
 
 OPENAI_IMAGE_MAX_WORKERS = 5
-
-# ---------------------------------------------------------------------------
-# Налаштування генерації тексту OpenAI
-# ---------------------------------------------------------------------------
-
-# gpt-4o-mini  — швидка, дешева
-# gpt-4o       — якісніша
-OPENAI_TEXT_MODEL = "gpt-5-nano"
-
-OPENAI_TEXT_TEMPERATURE = 0.3
-
-# ---------------------------------------------------------------------------
-# Налаштування генерації зображень Gemini
-# ---------------------------------------------------------------------------
-
-# "gemini-3.1-flash-image-preview"              — найновіша, thinking mode
-# "gemini-2.5-flash-image-preview"              — швидша, без thinking
-# "gemini-2.0-flash-preview-image-generation"   — стара стабільна
-GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview"
-
-# Thinking budget (тільки для моделей з thinking)
-# 0 — вимкнено, -1 — авто, 1024 — обмежений
-GEMINI_IMAGE_THINKING_BUDGET = 0
-
-GEMINI_IMAGE_TEMPERATURE = 0.7
-
 GEMINI_IMAGE_MAX_WORKERS = 3
-
-# ---------------------------------------------------------------------------
-# Налаштування генерації тексту Gemini
-# ---------------------------------------------------------------------------
-
-# "gemini-2.5-pro"    — найякісніша
-# "gemini-2.5-flash"  — швидша
-# "gemini-2.0-flash"  — стабільна, без thinking
-GEMINI_TEXT_MODEL = "gemini-2.5-flash-lite"
-
-# Thinking budget для текстової моделі
-# 0 — вимкнено, -1 — авто, 1024+ — обмежений
-GEMINI_TEXT_THINKING_BUDGET = 0
-
-GEMINI_TEXT_TEMPERATURE = 0.3
 
 # ---------------------------------------------------------------------------
 # Session management — серверне збереження стану pptx-генератора
@@ -235,8 +258,33 @@ def _validate_and_fix_zones(design):
 @pptx_generator_bp.route('/')
 @login_required
 def index():
-    """Main page with JSON input form."""
-    return render_template('pptx_generator/index-pptx-generator.html')
+    """Main page with model selectors and JSON input form."""
+    settings = _get_settings()
+    model_settings = _load_model_settings()
+    text_model = model_settings.get('textModel', '')
+    image_model = model_settings.get('imageModel', '')
+    return render_template(
+        'pptx_generator/index-pptx-generator.html',
+        settings=sanitize_settings_for_client(settings),
+        text_model=text_model,
+        image_model=image_model
+    )
+
+
+@pptx_generator_bp.route('/api/model-settings', methods=['POST'])
+@login_required
+def save_model_settings():
+    """Save model selections for text and image generation."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        _save_model_settings(data)
+        logger.info(f"[PPTX] Model settings saved: textModel={data.get('textModel')}, imageModel={data.get('imageModel')}")
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"[PPTX] Failed to save model settings: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @pptx_generator_bp.route('/api/generate', methods=['POST'])
@@ -257,13 +305,9 @@ def generate_pptx():
     ]
     
     Query parameters:
-        provider: 'google' (default) or 'openai' - image generation provider
         generate_images: 'true' (default) or 'false'
     """
     raw_data = request.get_data(as_text=True)
-    image_provider = request.args.get('provider', 'google').lower()
-    if image_provider not in ['google', 'openai']:
-        image_provider = 'google'
     generate_images_param = request.args.get('generate_images', 'true').lower()
     generate_images = generate_images_param in ['true', '1', 'yes']
 
@@ -283,13 +327,15 @@ def generate_pptx():
 
             total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
             design_config = None
+            settings = _get_settings()
+            img_provider, img_model = _get_image_model_info(settings)
 
             # Parse JSON
             try:
                 parsed = json.loads(raw_data)
             except json.JSONDecodeError:
                 yield _sse_event('status', {'step': 'llm_fix', 'message': 'JSON некоректний, виправляю через LLM...'})
-                parsed, tokens = fix_json_with_llm(raw_data, provider=image_provider)
+                parsed, tokens = fix_json_with_llm(raw_data)
                 if tokens:
                     total_tokens['input_tokens'] += tokens.get('input_tokens', 0)
                     total_tokens['output_tokens'] += tokens.get('output_tokens', 0)
@@ -360,12 +406,11 @@ def generate_pptx():
                     sse_queue = []  # збираємо події поки futures виконуються
 
                     def _generate_one(idx, desc):
-                        if image_provider == 'openai':
-                            return idx, *generate_image_with_openai(desc, images_dir, idx)
-                        else:
-                            return idx, *generate_image_with_google(desc, images_dir, idx)
+                        img_model_name = img_model.get('apiModel', '')
+                        return idx, *generate_image(img_provider, desc, images_dir, idx, model_name=img_model_name)
 
-                    max_workers = OPENAI_IMAGE_MAX_WORKERS if image_provider == 'openai' else GEMINI_IMAGE_MAX_WORKERS
+                    img_provider_type = img_provider.get('type', '')
+                    max_workers = OPENAI_IMAGE_MAX_WORKERS if (img_provider_type in ('openai-responses', 'openai-compatible') or img_provider.get('id') == 'openai') else GEMINI_IMAGE_MAX_WORKERS
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         futures = {
                             executor.submit(_generate_one, i, desc): i
@@ -711,10 +756,6 @@ def suggest_design():
             return jsonify({'error': 'No data provided'}), 400
 
         slides = body.get('slides', [])
-        provider = body.get('provider', 'google').lower()
-        if provider not in ['google', 'openai']:
-            provider = 'google'
-
         if not slides:
             return jsonify({'error': 'No slides provided'}), 400
 
@@ -729,80 +770,36 @@ def suggest_design():
         slides_summary = '\n\n'.join(slides_summary_lines)
         user_prompt = DESIGN_USER_PROMPT.format(slides_summary=slides_summary)
 
+        settings = _get_settings()
+        text_provider, text_model = _get_text_model_info(settings)
+
+        if not text_provider or not text_model:
+            return jsonify({'error': 'Text model not configured'}), 500
+
         designs = None
         tokens_used = None
 
         for attempt in range(2):
             try:
-                if provider == 'openai':
-                    api_key = os.getenv('OPENAI_API_KEY')
-                    if not api_key:
-                        return jsonify({'error': 'OPENAI_API_KEY not set'}), 500
+                # Use shared get_ai_response function
+                context = [
+                    {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ]
+                result_text, _ = get_ai_response(context, text_provider, text_model)
 
-                    from openai import OpenAI
-                    client = OpenAI(api_key=api_key)
+                # Estimate tokens
+                full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
+                tokens_used = {
+                    'input_tokens': len(full_prompt) // 4,
+                    'output_tokens': len(result_text) // 4,
+                    'total_tokens': (len(full_prompt) + len(result_text)) // 4
+                }
 
-                    response = client.chat.completions.create(
-                        model=OPENAI_TEXT_MODEL,
-                        messages=[
-                            {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
-                            {"role": "user", "content": user_prompt}
-                        ]
-                    )
-
-                    result_text = response.choices[0].message.content.strip()
-
-                    try:
-                        if response.usage:
-                            tokens_used = {
-                                'input_tokens': response.usage.prompt_tokens,
-                                'output_tokens': response.usage.completion_tokens,
-                                'total_tokens': response.usage.total_tokens
-                            }
-                    except Exception:
-                        pass
-
-                else:
-                    api_key = os.getenv('GEMINI_API_KEY')
-                    if not api_key:
-                        return jsonify({'error': 'GEMINI_API_KEY not set'}), 500
-
-                    from google import genai
-                    from google.genai import types
-                    client = genai.Client(api_key=api_key)
-
-                    full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
-                    response = client.models.generate_content(
-                        model=GEMINI_TEXT_MODEL,
-                        contents=full_prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.4,
-                        )
-                    )
-
-                    result_text = response.text.strip()
-
-                    try:
-                        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                            tokens_used = {
-                                'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
-                                'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
-                                'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
-                            }
-                    except Exception:
-                        pass
-
-                start = result_text.find('[')
-                end = result_text.rfind(']')
-                if start != -1 and end != -1 and end > start:
-                    result_text = result_text[start:end + 1]
-                if '```json' in result_text:
-                    result_text = result_text.split('```json', 1)[1]
-                if '```' in result_text:
-                    result_text = result_text.rsplit('```', 1)[0]
-                result_text = result_text.strip()
-
+                # Extract and parse JSON
+                result_text = _extract_json_from_response(result_text)
                 designs = json.loads(result_text)
+
                 if isinstance(designs, list) and len(designs) == 3:
                     break
                 else:
@@ -832,14 +829,27 @@ def suggest_design():
         return jsonify({'error': str(e), 'designs': []}), 200
 
 
-# 2. Повертає розпарсений JSON масив або None
-def fix_json_with_llm(raw_text, provider='google'):
+def _extract_json_from_response(result_text: str) -> str:
+    """Extract JSON array from LLM response text."""
+    start = result_text.find('[')
+    end = result_text.rfind(']')
+    if start != -1 and end != -1 and end > start:
+        result_text = result_text[start:end + 1]
+    else:
+        if '```json' in result_text:
+            result_text = result_text.split('```json', 1)[1]
+        if '```' in result_text:
+            result_text = result_text.rsplit('```', 1)[0]
+    return result_text.strip()
+
+
+def fix_json_with_llm(raw_text):
     """
     Use LLM to fix and format JSON structure for slides.
+    Uses the selected text model from settings via get_ai_response.
 
     Args:
         raw_text: raw text input that may not be valid JSON
-        provider: 'google' or 'openai'
 
     Returns:
         tuple: (parsed JSON list or None, tokens_used dict or None)
@@ -872,265 +882,40 @@ def fix_json_with_llm(raw_text, provider='google'):
 Поверни JSON:"""
 
     try:
-        from dotenv import load_dotenv
-        load_dotenv()
+        settings = _get_settings()
+        text_provider, text_model = _get_text_model_info(settings)
+        if not text_provider or not text_model:
+            logger.warning("No text model configured, cannot fix JSON")
+            return None, None
 
-        if provider == 'openai':
-            api_key = os.getenv('OPENAI_API_KEY')
-            if not api_key:
-                logger.warning("OPENAI_API_KEY not set, cannot fix JSON")
-                return None, None
+        logger.info(f"[PPTX] Виклик LLM ({text_provider.get('name')}/{text_model['apiModel']}) для виправлення JSON")
 
-            logger.info(f"[PPTX] Виклик LLM (OpenAI/{OPENAI_TEXT_MODEL}) для виправлення JSON")
+        # Use shared get_ai_response function
+        context = [{"role": "user", "content": prompt}]
+        response_text, _ = get_ai_response(context, text_provider, text_model)
 
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
+        logger.debug(f"LLM raw response (first 200): {response_text[:200]}")
 
-            response = client.chat.completions.create(
-                model=OPENAI_TEXT_MODEL,
-                # temperature=OPENAI_TEXT_TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}]
-            )
-
-            result_text = response.choices[0].message.content.strip()
-            logger.debug(f"OpenAI LLM raw response (first 200): {result_text[:200]}")
-
-            tokens_used = None
-            try:
-                if response.usage:
-                    tokens_used = {
-                        'input_tokens': response.usage.prompt_tokens,
-                        'output_tokens': response.usage.completion_tokens,
-                        'total_tokens': response.usage.total_tokens
-                    }
-            except Exception as token_err:
-                logger.warning(f"Could not extract OpenAI token usage: {token_err}")
-
-        else:  # google
-            api_key = os.getenv('GEMINI_API_KEY')
-            if not api_key:
-                logger.warning("GEMINI_API_KEY not set, cannot fix JSON")
-                return None, None
-
-            logger.info(f"[PPTX] Виклик LLM (Gemini/{GEMINI_TEXT_MODEL}) для виправлення JSON")
-
-            from google import genai
-            from google.genai import types
-            client = genai.Client(api_key=api_key)
-
-            response = client.models.generate_content(
-                model=GEMINI_TEXT_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=GEMINI_TEXT_TEMPERATURE,
-                    # thinking_config=types.ThinkingConfig(
-                    #     thinking_budget=GEMINI_TEXT_THINKING_BUDGET
-                    # )
-                )
-            )
-
-            result_text = response.text.strip()
-            logger.debug(f"Gemini LLM raw response (first 200): {result_text[:200]}")
-
-            tokens_used = None
-            try:
-                if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                    tokens_used = {
-                        'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
-                        'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
-                        'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
-                    }
-            except Exception as token_err:
-                logger.warning(f"Could not extract Gemini token usage: {token_err}")
-
-        # Extract JSON array — find first '[' ... last ']'
-        start = result_text.find('[')
-        end = result_text.rfind(']')
-        if start != -1 and end != -1 and end > start:
-            result_text = result_text[start:end + 1]
-        else:
-            if '```json' in result_text:
-                result_text = result_text.split('```json', 1)[1]
-            if '```' in result_text:
-                result_text = result_text.rsplit('```', 1)[0]
-            result_text = result_text.strip()
-
+        # Extract JSON array
+        result_text = _extract_json_from_response(response_text)
         data = json.loads(result_text)
 
         if isinstance(data, list):
-            logger.info(f"Successfully fixed JSON with LLM ({provider}): {len(data)} slides")
+            logger.info(f"Successfully fixed JSON with LLM ({text_provider.get('name')}): {len(data)} slides")
+            # Estimate tokens (get_ai_response doesn't return token counts)
+            tokens_used = {
+                'input_tokens': len(prompt) // 4,
+                'output_tokens': len(response_text) // 4,
+                'total_tokens': (len(prompt) + len(response_text)) // 4
+            }
             return data, tokens_used
         else:
             logger.warning("LLM returned non-array JSON")
-            return None, tokens_used
+            return None, None
 
     except Exception as e:
         import traceback
-        logger.error(f"Failed to fix JSON with LLM ({provider}): {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        return None, None
-
-# 3. Генерація зображень
-def generate_image_with_google(description, output_dir, slide_index):
-    """
-    Generate image using Gemini AI based on description.
-    """
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            logger.warning("GEMINI_API_KEY not set, skipping image generation")
-            return None, None
-        
-        from google import genai
-        from google.genai import types
-        import base64
-        
-        client = genai.Client(api_key=api_key)
-        
-        enhanced_prompt = f"""Create a clean, professional illustration for a presentation slide.
-        
-Description: {description}
-
-Requirements:
-- Simple, minimalist design
-- Suitable for educational/business presentation
-- Clear visual elements
-- No text in the image
-- Professional color palette"""
-        
-        logger.info(f"Generating image for slide {slide_index}: {description[:50]}...")
-        
-        response = client.models.generate_content(
-            model=GEMINI_IMAGE_MODEL,
-            contents=enhanced_prompt,
-            config=types.GenerateContentConfig(
-                temperature=GEMINI_IMAGE_TEMPERATURE,
-                response_modalities=['Text', 'Image'],
-                thinking_config=types.ThinkingConfig(thinking_budget=GEMINI_IMAGE_THINKING_BUDGET)
-            )
-        )
-        
-        image_data = None
-        logger.info(f"Response candidates count: {len(response.candidates)}")
-        
-        if response.candidates and len(response.candidates) > 0:
-            candidate = response.candidates[0]
-            logger.info(f"Content parts count: {len(candidate.content.parts)}")
-            
-            for i, part in enumerate(candidate.content.parts):
-                logger.info(f"Part {i}: type={type(part)}, text={getattr(part, 'text', None)[:50] if hasattr(part, 'text') and part.text else 'None'}")
-                
-                if hasattr(part, 'inline_data') and part.inline_data is not None:
-                    image_data = part.inline_data.data
-                    logger.info(f"Found inline_data for slide {slide_index}")
-                    break
-                elif hasattr(part, 'inlineData') and part.inlineData is not None:
-                    image_data = part.inlineData.data
-                    logger.info(f"Found inlineData for slide {slide_index}")
-                    break
-        
-        if image_data is None:
-            logger.warning(f"No image data returned for slide {slide_index}")
-            return None, None
-        
-        image_path = os.path.join(output_dir, f"slide_{slide_index}.png")
-        with open(image_path, 'wb') as f:
-            f.write(base64.b64decode(image_data) if isinstance(image_data, str) else image_data)
-        
-        tokens_used = None
-        try:
-            if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                tokens_used = {
-                    'input_tokens': getattr(response.usage_metadata, 'prompt_token_count', 0),
-                    'output_tokens': getattr(response.usage_metadata, 'candidates_token_count', 0),
-                    'total_tokens': getattr(response.usage_metadata, 'total_token_count', 0)
-                }
-                logger.info(f"Image generation tokens: {tokens_used}")
-        except Exception as token_err:
-            logger.warning(f"Could not extract image generation token usage: {token_err}")
-        
-        logger.info(f"Image saved to {image_path}")
-        return image_path, tokens_used
-        
-    except Exception as e:
-        logger.error(f"Image generation failed: {e}")
-        return None, None
-
-# 3.1 Генерація зображень
-def generate_image_with_openai(description, output_dir, slide_index):
-    """
-    Generate image using OpenAI GPT Image 1 Mini based on description.
-    """
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            logger.warning("OPENAI_API_KEY not set, skipping image generation")
-            return None, None
-        
-        from openai import OpenAI
-        import httpx
-        import base64
-        
-        # Таймаут 120с — OpenAI docs: складні промпти до 2 хвилин
-        client = OpenAI(
-            api_key=api_key,
-            timeout=httpx.Timeout(120.0, connect=10.0)
-        )
-        
-        enhanced_prompt = f"""Create a clean, professional illustration for a presentation slide.
-        
-Description: {description}
-
-Requirements:
-- Simple, minimalist design
-- Suitable for educational/business presentation
-- Clear visual elements
-- No text in the image
-- Professional color palette"""
-        
-        logger.info(f"Generating image with OpenAI for slide {slide_index}: {description[:50]}...")
-        
-        response = client.images.generate(
-            model=OPENAI_IMAGE_MODEL,
-            prompt=enhanced_prompt,
-            n=1,
-            size=OPENAI_IMAGE_SIZE,
-            quality=OPENAI_IMAGE_QUALITY
-            # response_format="b64_json"
-        )
-        
-        if response.data and len(response.data) > 0:
-            image_data = response.data[0].b64_json
-            if image_data:
-                image_path = os.path.join(output_dir, f"slide_{slide_index}.png")
-                with open(image_path, 'wb') as f:
-                    f.write(base64.b64decode(image_data))
-                
-                tokens_used = None
-                try:
-                    if hasattr(response, 'usage') and response.usage:
-                        tokens_used = {
-                            'input_tokens': getattr(response.usage, 'prompt_tokens', 0),
-                            'output_tokens': getattr(response.usage, 'completion_tokens', 0),
-                            'total_tokens': getattr(response.usage, 'total_tokens', 0)
-                        }
-                        logger.info(f"OpenAI image generation tokens: {tokens_used}")
-                except Exception as token_err:
-                    logger.warning(f"Could not extract OpenAI image generation token usage: {token_err}")
-                
-                logger.info(f"OpenAI image saved to {image_path}")
-                return image_path, tokens_used
-        
-        logger.warning(f"No image data returned from OpenAI for slide {slide_index}")
-        return None, None
-        
-    except Exception as e:
-        logger.error(f"OpenAI image generation failed: {e}", exc_info=True)
+        logger.error(f"Failed to fix JSON with LLM: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         return None, None
 
 # Валідує JSON без генерації, Може викликати fix_json_with_llm() при невалідному JSON
@@ -1148,7 +933,7 @@ def validate_json():
             data = json.loads(raw_data)
         except json.JSONDecodeError:
             logger.info("JSON parsing failed in validate, attempting LLM fix")
-            data, _ = fix_json_with_llm(raw_data, provider='google')
+            data, _ = fix_json_with_llm(raw_data)
             
             if data is None:
                 return jsonify({
@@ -1390,13 +1175,12 @@ def generate_designs():
         shutil.rmtree(designs_dir, ignore_errors=True)
         os.makedirs(designs_dir, exist_ok=True)
 
-        provider = request.args.get('provider', 'google').lower()
-        if provider not in ['google', 'openai']:
-            provider = 'google'
-
         # --- 1. LLM designs ---
         llm_designs = []
         try:
+            settings = _get_settings()
+            text_provider, text_model = _get_text_model_info(settings)
+
             slides_summary_lines = []
             for i, slide in enumerate(slides):
                 title = slide.get('title', '')
@@ -1410,40 +1194,44 @@ def generate_designs():
             for attempt in range(2):
                 result_text = ''
                 try:
-                    if provider == 'openai':
-                        api_key = os.getenv('OPENAI_API_KEY')
-                        if api_key:
-                            from openai import OpenAI
-                            client = OpenAI(api_key=api_key)
-                            resp = client.chat.completions.create(
-                                model=OPENAI_TEXT_MODEL,
-                                messages=[
-                                    {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
-                                    {"role": "user", "content": user_prompt}
-                                ]
-                            )
-                            result_text = resp.choices[0].message.content.strip()
-                            if resp.usage:
-                                total_tokens['input_tokens'] += resp.usage.prompt_tokens or 0
-                                total_tokens['output_tokens'] += resp.usage.completion_tokens or 0
-                                total_tokens['total_tokens'] += resp.usage.total_tokens or 0
-                    else:
-                        api_key = os.getenv('GEMINI_API_KEY')
-                        if api_key:
-                            from google import genai
-                            from google.genai import types
-                            client = genai.Client(api_key=api_key)
-                            full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
-                            resp = client.models.generate_content(
-                                model=GEMINI_TEXT_MODEL,
-                                contents=full_prompt,
-                                config=types.GenerateContentConfig(temperature=0.4)
-                            )
-                            result_text = resp.text.strip()
-                            if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
-                                total_tokens['input_tokens'] += getattr(resp.usage_metadata, 'prompt_token_count', 0)
-                                total_tokens['output_tokens'] += getattr(resp.usage_metadata, 'candidates_token_count', 0)
-                                total_tokens['total_tokens'] += getattr(resp.usage_metadata, 'total_token_count', 0)
+                    model_name = text_model['apiModel'] if text_model else ''
+                    provider_type = text_provider.get('type', '') if text_provider else ''
+                    api_key = text_provider.get('apiKey', '') if text_provider else ''
+
+                    if not api_key or not model_name:
+                        break
+
+                    # OpenAI-compatible providers
+                    if provider_type in ('openai-responses', 'openai-compatible') or text_provider.get('id') == 'openai':
+                        from openai import OpenAI
+                        client = OpenAI(api_key=api_key)
+                        resp = client.chat.completions.create(
+                            model=model_name,
+                            messages=[
+                                {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                                {"role": "user", "content": user_prompt}
+                            ]
+                        )
+                        result_text = resp.choices[0].message.content.strip()
+                        if resp.usage:
+                            total_tokens['input_tokens'] += resp.usage.prompt_tokens or 0
+                            total_tokens['output_tokens'] += resp.usage.completion_tokens or 0
+                            total_tokens['total_tokens'] += resp.usage.total_tokens or 0
+                    elif provider_type == 'gemini':
+                        from google import genai
+                        from google.genai import types
+                        client = genai.Client(api_key=api_key)
+                        full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
+                        resp = client.models.generate_content(
+                            model=model_name,
+                            contents=full_prompt,
+                            config=types.GenerateContentConfig(temperature=0.4)
+                        )
+                        result_text = resp.text.strip()
+                        if hasattr(resp, 'usage_metadata') and resp.usage_metadata:
+                            total_tokens['input_tokens'] += getattr(resp.usage_metadata, 'prompt_token_count', 0)
+                            total_tokens['output_tokens'] += getattr(resp.usage_metadata, 'candidates_token_count', 0)
+                            total_tokens['total_tokens'] += getattr(resp.usage_metadata, 'total_token_count', 0)
                     # Extract JSON
                     start = result_text.find('[')
                     end = result_text.rfind(']')
@@ -1534,9 +1322,8 @@ def generate_images():
             with open(input_file, 'r') as f:
                 slides = json.load(f)
 
-            provider = request.args.get('provider', 'google').lower()
-            if provider not in ['google', 'openai']:
-                provider = 'google'
+            settings = _get_settings()
+            img_provider, img_model = _get_image_model_info(settings)
 
             images_dir = os.path.join(sdir, 'images')
             os.makedirs(images_dir, exist_ok=True)
@@ -1570,12 +1357,11 @@ def generate_images():
             total_tokens = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
 
             def _generate_one(idx, desc):
-                if provider == 'openai':
-                    return idx, *generate_image_with_openai(desc, images_dir, idx)
-                else:
-                    return idx, *generate_image_with_google(desc, images_dir, idx)
+                img_model_name = img_model.get('apiModel', '')
+                return idx, *generate_image(img_provider, desc, images_dir, idx, model_name=img_model_name)
 
-            max_workers = OPENAI_IMAGE_MAX_WORKERS if provider == 'openai' else GEMINI_IMAGE_MAX_WORKERS
+            img_provider_type = img_provider.get('type', '')
+            max_workers = OPENAI_IMAGE_MAX_WORKERS if (img_provider_type in ('openai-responses', 'openai-compatible') or img_provider.get('id') == 'openai') else GEMINI_IMAGE_MAX_WORKERS
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(_generate_one, i, desc): i

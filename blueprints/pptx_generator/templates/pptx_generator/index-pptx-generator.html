@@ -518,23 +518,31 @@
             <textarea id="json-input" placeholder='[{"title": "Назва слайду", "body": "Текст слайду", "image_description": "Опис ілюстрації"}]'></textarea>
         </div>
 
-        <div class="provider-selector">
-            <label>Провайдер для обробки тексту та зображень:</label>
-            <div class="provider-row">
-                <div class="radio-group">
-                    <label class="radio-label">
-                        <input type="radio" name="image-provider" value="google" checked>
-                        Google Gemini
-                    </label>
-                    <label class="radio-label">
-                        <input type="radio" name="image-provider" value="openai">
-                        OpenAI
-                    </label>
+        <div class="provider-selector" style="display:flex;gap:30px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <label>Модель для генерації тексту:</label>
+                <div class="provider-row">
+                    <select id="text-model-select" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;"></select>
                 </div>
-                <div class="token-display">
-                    <span class="token-label">Токенів використано:</span>
-                    <span class="token-value" id="token-count">0</span>
+            </div>
+            <div style="flex:1;min-width:200px;">
+                <label>Модель для генерації зображень:</label>
+                <div class="provider-row">
+                    <select id="image-model-select" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;"></select>
                 </div>
+            </div>
+        </div>
+
+        <div class="provider-row" style="margin-bottom: 20px; padding: 0 15px;">
+            <div class="radio-group">
+                <label class="radio-label">
+                    <input type="checkbox" id="generate-images-check" checked>
+                    Генерувати зображення
+                </label>
+            </div>
+            <div class="token-display">
+                <span class="token-label">Токенів використано:</span>
+                <span class="token-value" id="token-count">0</span>
             </div>
         </div>
 
@@ -583,6 +591,9 @@
     <div id="toast" class="toast"></div>
 
     <script>
+        const settings = {{ settings | tojson }};
+        const textModel = {{ text_model | tojson }};
+        const imageModel = {{ image_model | tojson }};
         const API_BASE = '/pptx-generator';
         let isWorking = false;
         let sessionState = null;
@@ -610,6 +621,58 @@
             t.textContent = message;
             t.className = `toast ${type} show`;
             setTimeout(() => t.classList.remove('show'), 3500);
+        }
+
+        // ---- Model selectors ----
+        function populateModelSelect(selectId, selectedValue) {
+            const select = document.getElementById(selectId);
+            select.innerHTML = '';
+            let hasSelected = false;
+            for (const provider of settings.providers) {
+                const group = document.createElement('optgroup');
+                group.label = provider.name;
+                for (const model of provider.models) {
+                    const opt = document.createElement('option');
+                    const val = provider.id + '::' + model.apiModel;
+                    opt.value = val;
+                    opt.textContent = provider.name + ' - ' + model.apiModel;
+                    if (val === selectedValue) {
+                        opt.selected = true;
+                        hasSelected = true;
+                    }
+                    group.appendChild(opt);
+                }
+                select.appendChild(group);
+            }
+            if (!hasSelected && select.options.length > 0) {
+                select.options[0].selected = true;
+            }
+        }
+
+        function saveModelSettings() {
+            const textVal = document.getElementById('text-model-select').value;
+            const imageVal = document.getElementById('image-model-select').value;
+            fetch(`${API_BASE}/api/model-settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ textModel: textVal, imageModel: imageVal })
+            }).catch(() => {});
+        }
+
+        function getActiveTextProviderAndModel() {
+            const v = document.getElementById('text-model-select').value;
+            const [pid, mid] = v.split('::');
+            const provider = settings.providers.find(p => p.id === pid);
+            const model = provider ? provider.models.find(m => m.apiModel === mid) : null;
+            return { provider, model };
+        }
+
+        function getActiveImageProviderAndModel() {
+            const v = document.getElementById('image-model-select').value;
+            const [pid, mid] = v.split('::');
+            const provider = settings.providers.find(p => p.id === pid);
+            const model = provider ? provider.models.find(m => m.apiModel === mid) : null;
+            return { provider, model };
         }
 
         // ---- Prompt Template ----
@@ -828,12 +891,10 @@
             btn.innerHTML = '<span class="loading"></span> Генерую дизайни...';
             statusText.textContent = 'Генерація дизайнів...';
             logClear();
-            logLine('▶ Генерую 6 варіантів дизайну (3 LLM + 3 локальних)...');
-
-            const provider = document.querySelector('input[name="image-provider"]:checked').value;
+			logLine('▶ Генерую 6 варіантів дизайну (3 LLM + 3 локальних)...');
 
             try {
-                const resp = await fetch(`${API_BASE}/api/generate-designs?provider=${provider}`, {
+                const resp = await fetch(`${API_BASE}/api/generate-designs`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(slides)
@@ -887,7 +948,6 @@
         }
 
         async function _doGenerateImages() {
-            const provider = document.querySelector('input[name="image-provider"]:checked').value;
             const btn = document.getElementById('btn-generate-images');
             const statusText = document.getElementById('status-text');
 
@@ -899,7 +959,7 @@
             statusText.textContent = 'Генерація зображень...';
 
             try {
-                const resp = await fetch(`${API_BASE}/api/generate-images?provider=${provider}`, { method: 'POST' });
+                const resp = await fetch(`${API_BASE}/api/generate-images`, { method: 'POST' });
                 if (!resp.ok) { throw new Error('Помилка генерації зображень'); }
 
                 const reader = resp.body.getReader();
@@ -1206,6 +1266,12 @@
 
         // ---- Init ----
         window.addEventListener('DOMContentLoaded', () => {
+            populateModelSelect('text-model-select', textModel);
+            populateModelSelect('image-model-select', imageModel);
+
+            document.getElementById('text-model-select').addEventListener('change', saveModelSettings);
+            document.getElementById('image-model-select').addEventListener('change', saveModelSettings);
+
             restoreSession();
             document.getElementById('json-input').addEventListener('input', autoSaveInput);
         });

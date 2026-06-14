@@ -1,0 +1,4 @@
+{
+  "textModel": "openai::gpt-5-nano",
+  "imageModel": "gemini::gemini-3.1-flash-image"
+}

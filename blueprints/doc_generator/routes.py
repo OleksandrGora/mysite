@@ -9,9 +9,9 @@ from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
 from loguru import logger
 from werkzeug.utils import secure_filename
+from common_config import login_required
 import re
 from celery import shared_task
-from functools import wraps
 from . import doc_generator_bp
 
 # Middleware для логування всіх запитів
@@ -97,18 +97,6 @@ def clear_debug_log() -> bool:
         return False
 
 # --- Authentication Decorator ---
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'email' not in session:
-            # File uploads use multipart/form-data, not JSON.
-            # Check path for API routes to always return JSON.
-            if request.is_json or '/api/' in request.path or request.content_type and 'multipart' in request.content_type:
-                return jsonify({'error': 'Unauthorized'}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 # --- File Validation ---
 

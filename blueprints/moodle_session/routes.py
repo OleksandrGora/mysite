@@ -8,22 +8,12 @@ import json
 from datetime import datetime
 from flask import request, jsonify, render_template, session, redirect, url_for
 from loguru import logger
-from functools import wraps
+from common_config import login_required
 
 from . import moodle_session_bp
 from .config_manager import load_config, save_config
 from .moodle_reporter import run_report
 
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'email' not in session:
-            if request.is_json or '/api/' in request.path:
-                return jsonify({'error': 'Unauthorized'}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # =============================================================

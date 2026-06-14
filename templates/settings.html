@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Налаштування LLM</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f5f7fa;
+      color: #1a1a2e;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px 16px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #e1e4e8;
+    }
+    h1 { font-size: 24px; font-weight: 600; }
+    .back-link {
+      color: #0366d6;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .back-link:hover { text-decoration: underline; }
+    .provider-card {
+      background: #fff;
+      border: 1px solid #e1e4e8;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .provider-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .provider-name-input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .provider-type-badge {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #e8f4f8;
+      color: #0366d6;
+      font-weight: 500;
+    }
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .field-group label {
+      font-size: 13px;
+      color: #586069;
+      font-weight: 500;
+    }
+    .field-group input {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .field-group input[type="password"] { font-family: monospace; }
+    .models-section { margin-top: 16px; }
+    .models-section > label {
+      font-size: 13px;
+      color: #586069;
+      font-weight: 600;
+      display: block;
+      margin-bottom: 8px;
+    }
+    .model-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .model-row input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .btn-primary { background: #0366d6; color: #fff; }
+    .btn-primary:hover { background: #0256c7; }
+    .btn-danger { background: #e74c3c; color: #fff; }
+    .btn-danger:hover { background: #c0392b; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #ddd;
+      color: #586069;
+    }
+    .btn-outline:hover { background: #f6f8fa; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .icon-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      font-size: 16px;
+      color: #586069;
+      border-radius: 4px;
+    }
+    .icon-btn:hover { background: #f0f0f0; }
+    .icon-btn.danger { color: #e74c3c; }
+    .icon-btn.danger:hover { background: #fdf0ef; }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #e1e4e8;
+    }
+    .add-provider-btn {
+      width: 100%;
+      padding: 12px;
+      border: 2px dashed #0366d6;
+      border-radius: 10px;
+      background: transparent;
+      color: #0366d6;
+      font-size: 15px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s;
+    }
+    .add-provider-btn:hover { background: #f0f5ff; }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #2c3e50;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .toast.show { opacity: 1; }
+    .detect-status {
+      font-size: 12px;
+      margin-top: 4px;
+      min-height: 18px;
+    }
+    .detect-status.success { color: #28a745; }
+    .detect-status.error { color: #e74c3c; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Налаштування LLM</h1>
+      <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Назад до сервісів</a>
+    </header>
+
+    <div id="providers-list"></div>
+
+    <button class="add-provider-btn" id="add-provider-btn">
+      <i class="fas fa-plus"></i> Додати провайдера
+    </button>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="save-btn">Зберегти</button>
+      <button class="btn btn-outline" id="cancel-btn">Скасувати</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let settings = null;
+
+    function showToast(msg, isError) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.background = isError ? '#e74c3c' : '#2c3e50';
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function genId() { return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6); }
+
+    function buildProvidersHTML(settings) {
+      let html = '';
+      settings.providers.forEach((p, idx) => {
+        const typeLabel = p.type || 'не визначено';
+        html += `
+          <div class="provider-card" data-idx="${idx}">
+            <div class="provider-header">
+              <input type="text" class="provider-name" value="${escapeHtml(p.name)}" placeholder="Назва провайдера">
+              <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
+              <button class="icon-btn danger detect-btn" title="Автовизначення типу"><i class="fas fa-sync-alt"></i></button>
+              <button class="icon-btn danger remove-provider-btn" title="Видалити"><i class="fas fa-trash"></i></button>
+            </div>
+            <div class="field-group">
+              <label>API URL</label>
+              <input type="text" class="provider-url" value="${escapeHtml(p.apiUrl)}" placeholder="https://api.example.com/v1/...">
+            </div>
+            <div class="field-group">
+              <label>API Key</label>
+              <div style="display:flex;gap:8px;">
+                <input type="password" class="provider-key" value="${escapeHtml(p.apiKey)}" placeholder="sk-..." style="flex:1;">
+                <button class="icon-btn toggle-key-btn" title="Показати/сховати ключ"><i class="fas fa-eye"></i></button>
+              </div>
+              <div class="detect-status" id="detect-status-${idx}"></div>
+            </div>
+            <div class="models-section">
+              <label>Моделі</label>
+              ${p.models.map((m, mIdx) => `
+                <div class="model-row" data-model-idx="${mIdx}">
+                  <input type="text" class="model-apimodel" value="${escapeHtml(m.apiModel)}" placeholder="Назва моделі в API">
+                  <button class="icon-btn danger remove-model-btn" title="Видалити модель"><i class="fas fa-times"></i></button>
+                </div>
+              `).join('')}
+              <button class="btn btn-outline btn-sm add-model-btn">+ Додати модель</button>
+            </div>
+          </div>`;
+      });
+      return html;
+    }
+
+    function renderProviders() {
+      document.getElementById('providers-list').innerHTML = buildProvidersHTML(settings);
+      attachEvents();
+    }
+
+    function attachEvents() {
+      document.querySelectorAll('.remove-provider-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const card = btn.closest('.provider-card');
+          const idx = parseInt(card.dataset.idx);
+          if (confirm('Видалити провайдера та всі його моделі?')) {
+            settings.providers.splice(idx, 1);
+            renderProviders();
+          }
+        });
+      });
+
+      document.querySelectorAll('.remove-model-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('.model-row');
+          const card = btn.closest('.provider-card');
+          const pIdx = parseInt(card.dataset.idx);
+          const mIdx = parseInt(row.dataset.modelIdx);
+          if (confirm('Видалити модель?')) {
+            settings.providers[pIdx].models.splice(mIdx, 1);
+            renderProviders();
+          }
+        });
+      });
+
+      document.querySelectorAll('.add-model-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const card = btn.closest('.provider-card');
+          const pIdx = parseInt(card.dataset.idx);
+          settings.providers[pIdx].models.push({ apiModel: 'new-model' });
+          renderProviders();
+        });
+      });
+
+      document.querySelectorAll('.toggle-key-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const input = btn.closest('.field-group').querySelector('.provider-key');
+          const icon = btn.querySelector('i');
+          if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fas fa-eye-slash';
+          } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye';
+          }
+        });
+      });
+
+      document.querySelectorAll('.detect-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const card = btn.closest('.provider-card');
+          const idx = parseInt(card.dataset.idx);
+          const statusEl = card.querySelector('.detect-status');
+          const url = card.querySelector('.provider-url').value.trim();
+          const key = card.querySelector('.provider-key').value.trim();
+          if (!url || !key) {
+            statusEl.textContent = 'Введіть API URL та ключ';
+            statusEl.className = 'detect-status error';
+            return;
+          }
+          statusEl.textContent = 'Визначення...';
+          statusEl.className = 'detect-status';
+          try {
+            const resp = await fetch('/api/detect-provider', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ api_url: url, api_key: key })
+            });
+            const data = await resp.json();
+            if (data.type) {
+              settings.providers[idx].type = data.type;
+              statusEl.textContent = `Визначено: ${data.type}`;
+              statusEl.className = 'detect-status success';
+              renderProviders();
+            } else {
+              statusEl.textContent = 'Не вдалося визначити тип';
+              statusEl.className = 'detect-status error';
+            }
+          } catch (e) {
+            statusEl.textContent = 'Помилка: ' + e.message;
+            statusEl.className = 'detect-status error';
+          }
+        });
+      });
+    }
+
+    function collectSettings() {
+      const cards = document.querySelectorAll('.provider-card');
+      const providers = [];
+      cards.forEach((card, idx) => {
+        const orig = settings.providers[idx] || {};
+        const models = [];
+        card.querySelectorAll('.model-row').forEach(row => {
+          const inputs = row.querySelectorAll('input');
+          models.push({
+            apiModel: inputs[0].value.trim()
+          });
+        });
+        providers.push({
+          id: orig.id || genId(),
+          type: settings.providers[idx] ? settings.providers[idx].type : null,
+          name: card.querySelector('.provider-name').value.trim(),
+          apiUrl: card.querySelector('.provider-url').value.trim(),
+          apiKey: card.querySelector('.provider-key').value.trim(),
+          models: models
+        });
+      });
+      return { providers: providers, activeProviderId: settings.activeProviderId, activeModelId: settings.activeModelId };
+    }
+
+    document.getElementById('add-provider-btn').addEventListener('click', () => {
+      settings.providers.push({
+        id: genId(),
+        type: null,
+        name: 'Новий провайдер',
+        apiUrl: '',
+        apiKey: '',
+        models: [{ apiModel: 'model-1' }]
+      });
+      renderProviders();
+    });
+
+    document.getElementById('save-btn').addEventListener('click', async () => {
+      const updated = collectSettings();
+      try {
+        const resp = await fetch('/api/global-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated)
+        });
+        const data = await resp.json();
+        if (data.success) {
+          settings = updated;
+          showToast('Налаштування збережено');
+        } else {
+          showToast('Помилка: ' + (data.error || 'Невідома помилка'), true);
+        }
+      } catch (e) {
+        showToast('Помилка: ' + e.message, true);
+      }
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', () => {
+      window.location.href = '/';
+    });
+
+    async function loadSettings() {
+      try {
+        const resp = await fetch('/api/global-settings');
+        settings = await resp.json();
+        renderProviders();
+      } catch (e) {
+        showToast('Помилка завантаження налаштувань', true);
+      }
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

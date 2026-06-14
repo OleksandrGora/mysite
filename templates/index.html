@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Сервіси</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -75,6 +76,14 @@
     .user-info a:hover {
       text-decoration: underline;
     }
+    .settings-link {
+      color: #586069;
+      font-size: 18px;
+      text-decoration: none;
+    }
+    .settings-link:hover {
+      color: #0366d6;
+    }
     .services-grid {
       display: grid;
       gap: 12px;
@@ -140,6 +149,7 @@
       <div class="user-info">
         {{ session['email'] }}
         <a href="/logout">Вийти</a>
+        <a href="/settings" class="settings-link" title="Налаштування LLM"><i class="fas fa-cog"></i></a>
       </div>
     </header>
 

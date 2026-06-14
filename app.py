@@ -6,13 +6,15 @@ from blueprints.ocr_processor import ocr_processor_bp
 from blueprints.moodle_session import moodle_session_bp
 from blueprints.moodle_session.moodle_reporter import get_moodle_token
 from blueprints.doc_generator.celery_worker import celery_app
-from flask import Flask, render_template, redirect, url_for, session, jsonify, request
+from blueprints.my_ai_chat import my_ai_chat_bp
+from flask import Flask, render_template, redirect, url_for, session, jsonify, request, current_app
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import os
 import logging
 from loguru import logger
 import sys
+from common_config import load_llm_config, save_llm_config, detect_provider_type, sanitize_settings_for_client, login_required
 
 load_dotenv()
 
@@ -47,7 +49,10 @@ app.register_blueprint(doc_generator_bp)
 app.register_blueprint(pptx_generator_bp)
 app.register_blueprint(ocr_processor_bp)
 app.register_blueprint(moodle_session_bp)
+app.register_blueprint(my_ai_chat_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'temporary_secret_key_for_debug')
+
+app.config['LLM_CONFIG'] = load_llm_config()
 
 
 # =============================================================
@@ -64,8 +69,99 @@ def add_cors_headers(response):
     return response
 
 
+# =============================================================
+# Global LLM Settings Endpoints
+# =============================================================
+
+@app.route('/settings')
+@login_required
+def settings_page():
+    """LLM settings management page."""
+    return render_template('settings.html')
+
+
+@app.route('/api/global-settings', methods=['GET'])
+@login_required
+def get_global_settings():
+    """Load global LLM settings (apiKey masked for security)."""
+    settings = current_app.config.get('LLM_CONFIG') or load_llm_config()
+    return jsonify(sanitize_settings_for_client(settings))
+
+
+@app.route('/api/global-settings', methods=['POST'])
+@login_required
+def save_global_settings():
+    """Save global LLM settings. Preserves existing apiKey when client sends masked value."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        existing = current_app.config.get('LLM_CONFIG') or load_llm_config()
+        existing_providers = {p['id']: p.get('apiKey', '') for p in existing.get('providers', [])}
+
+        for p in data.get('providers', []):
+            key = p.get('apiKey', '')
+            if key and '\u2022' in key and p['id'] in existing_providers:
+                existing_key = existing_providers[p['id']]
+                if existing_key and '\u2022' not in existing_key:
+                    p['apiKey'] = existing_key
+
+        save_llm_config(data)
+        current_app.config['LLM_CONFIG'] = data
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Failed to save global settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/detect-provider', methods=['POST'])
+@login_required
+def detect_provider():
+    """Auto-detect provider type."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        api_url = data.get('api_url', '')
+        api_key = data.get('api_key', '')
+        if not api_url or not api_key:
+            return jsonify({'error': 'API URL and API key are required'}), 400
+        detected_type = detect_provider_type(api_url, api_key)
+        return jsonify({'type': detected_type})
+    except Exception as e:
+        logger.error(f"Provider detection failed: {e}")
+        return jsonify({'type': None, 'error': str(e)}), 200
+
+
+@app.route('/api/providers')
+@login_required
+def list_providers():
+    """List all providers (for model selector)."""
+    settings = current_app.config.get('LLM_CONFIG') or load_llm_config()
+    providers = []
+    for p in settings.get('providers', []):
+        providers.append({
+            'id': p['id'],
+            'name': p['name'],
+            'type': p.get('type'),
+        })
+    return jsonify(providers)
+
+
+@app.route('/api/providers/<provider_id>/models')
+@login_required
+def list_provider_models(provider_id):
+    """List models for a provider."""
+    settings = current_app.config.get('LLM_CONFIG') or load_llm_config()
+    for p in settings.get('providers', []):
+        if p['id'] == provider_id:
+            return jsonify(p.get('models', []))
+    return jsonify({'error': 'Provider not found'}), 404
+
+
 logger.info("=== APP STARTUP ===")
-logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor, moodle_session")
+logger.info(f"Blueprints registered: converter, doc_generator, pptx_generator, ocr_processor, moodle_session, my_ai_chat")
 logger.info(f"Secret key set: {bool(app.secret_key)}")
 
 # Celery and data configuration
@@ -102,6 +198,7 @@ SERVICES = [
     {"name": "Генератор PowerPoint презентацій", "url": "/pptx-generator", "desc": "Створення презентацій з JSON"},
     {"name": "OCR Текстовий Розпізнавач", "url": "/ocr-processor", "desc": "Розпізнавання друкованого та рукописного тексту зі зображень"},
     {"name": "Moodle Assignment Reporter", "url": "/moodle-session", "desc": "Отримання завдань з Moodle НУБіП та надсилання у Telegram"},
+    {"name": "AI Чат", "url": "/ai-chat", "desc": "Чат з AI через різних провайдерів (OpenAI, DeepSeek, Gemini)"},
 ]
 
 @app.route('/')

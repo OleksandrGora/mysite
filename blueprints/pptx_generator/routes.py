@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for, Response, stream_with_context
 from loguru import logger
-from functools import wraps
+from common_config import login_required
 from . import pptx_generator_bp
 from .create_pptx import create_presentation
 
@@ -114,19 +114,6 @@ def _save_session_state(state):
     state_file = os.path.join(_get_session_dir(), 'state.json')
     with open(state_file, 'w') as f:
         json.dump(state, f)
-
-
-# ---------------------------------------------------------------------------
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'email' not in session:
-            if request.is_json or '/api/' in request.path:
-                return jsonify({'error': 'Unauthorized'}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 # --- Routes ---

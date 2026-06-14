@@ -5,20 +5,10 @@ import shutil
 from datetime import datetime
 from flask import request, jsonify, render_template, current_app, send_file, session, redirect, url_for
 from loguru import logger
-from functools import wraps
+from common_config import login_required
 from . import ocr_processor_bp
 from .ocr_engine import OCREngine
 
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'email' not in session:
-            if request.is_json or '/api/' in request.path:
-                return jsonify({'error': 'Unauthorized'}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
 
 
 @ocr_processor_bp.route('/')

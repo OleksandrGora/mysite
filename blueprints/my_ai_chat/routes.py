@@ -8,6 +8,7 @@ from flask import request, jsonify, render_template, current_app, send_file, ses
 from loguru import logger
 from . import my_ai_chat_bp
 from common_config import load_llm_config, get_ai_response, sanitize_settings_for_client, login_required
+from txt_processor import extract_text, IMAGE_EXTENSIONS
 
 CHATS_ROOT = os.path.join(
     os.getenv('DATA_DIR', '/home/openclaw/mysite/data'),
@@ -20,8 +21,14 @@ ALLOWED_UPLOAD_MIMES = {
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
     'text/plain', 'text/markdown', 'text/csv', 'text/html',
     'application/json',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
-ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.txt', '.md', '.csv', '.html', '.json'}
+ALLOWED_UPLOAD_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.txt', '.md', '.csv', '.html', '.json',
+                       '.pdf', '.doc', '.docx', '.pptx', '.xlsx'}
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
 
@@ -375,7 +382,7 @@ def send_message(chat_id):
                 file_path = os.path.join(files_dir, safe_fid)
                 if os.path.exists(file_path):
                     ext = os.path.splitext(fid)[1].lower()
-                    if ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+                    if ext in IMAGE_EXTENSIONS:
                         has_images = True
                         import base64
                         with open(file_path, 'rb') as f:
@@ -386,9 +393,13 @@ def send_message(chat_id):
                             'image_url': {'url': f'data:{mime};base64,{b64}'}
                         })
                     else:
-                        with open(file_path, 'r', errors='ignore') as f:
-                            content = f.read()
-                        parts.append({'type': 'text', 'text': f'\n\n--- {fid} ---\n{content}'})
+                        display_name = fid.split('_', 1)[1] if '_' in fid else fid
+                        try:
+                            content = extract_text(file_path)
+                            parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{content}'})
+                        except Exception as e:
+                            logger.warning(f"[AI_CHAT] Failed to extract text from {fid}: {e}")
+                            parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract text from this file]'})
 
             if has_images:
                 parts.insert(0, {'type': 'text', 'text': user_text})

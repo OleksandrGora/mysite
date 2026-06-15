@@ -763,7 +763,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
                 append_debug_log(f"[CELERY] Аналіз частини {i+1}/{len(chunks)} для завдання {task_id}")
                 append_debug_log(f"[CELERY] Старт LLM-запиту для чанку {i+1}/{len(chunks)} (чанк: {len(chunk)} символів, модель: {selected_model})")
 
-                prompt = ANALYSIS_PROMPT.format(text_content=chunk)
+                prompt = ANALYSIS_PROMPT.format(text_content=chunk, file_name=template_file)
                 chunk_result = _call_llm(prompt)
                 append_debug_log(f"[CELERY] Отримано відповідь для чанку {i+1}/{len(chunks)} ({len(chunk_result)} символів)")
                 save_ai_response(task_id, f"analysis_{i+1}", prompt, chunk_result, folder_path, selected_model)
@@ -773,7 +773,7 @@ def analyze_document_task(self, task_id, folder_path, analysis_prompt):
             append_debug_log(f"[CELERY] Об'єднано результати аналізу {len(chunks)} частин для завдання {task_id}")
         else:
             append_debug_log(f"[CELERY] Старт LLM-запиту (одна частина, {len(text_content)} символів, модель: {selected_model})")
-            prompt = ANALYSIS_PROMPT.format(text_content=text_content)
+            prompt = ANALYSIS_PROMPT.format(text_content=text_content, file_name=template_file)
             logger.info(f"[ANALYZE] Prompt prepared, length: {len(prompt)}")
             update_task_progress(folder_path, f'Виклик {selected_model} для аналізу...', 50)
             analysis_text = _call_llm(prompt)

@@ -394,12 +394,38 @@ def send_message(chat_id):
                         })
                     else:
                         display_name = fid.split('_', 1)[1] if '_' in fid else fid
-                        try:
-                            content = extract_text(file_path)
-                            parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{content}'})
-                        except Exception as e:
-                            logger.warning(f"[AI_CHAT] Failed to extract text from {fid}: {e}")
-                            parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract text from this file]'})
+                        ext = os.path.splitext(fid)[1].lower()
+
+                        if ext in ('.pdf', '.docx'):
+                            try:
+                                from txt_processor import extract_content
+                                chat_dir = _get_chat_dir(chat_id)
+                                result = extract_content(file_path, chat_dir, display_name)
+                                text = result["text"]
+                                image_paths = result["image_paths"]
+
+                                parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{text}'})
+
+                                import base64
+                                for img_path in image_paths:
+                                    if os.path.exists(img_path):
+                                        with open(img_path, 'rb') as img_file:
+                                            b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                                        parts.append({
+                                            'type': 'image_url',
+                                            'image_url': {'url': f'data:image/png;base64,{b64}'}
+                                        })
+                                has_images = True
+                            except Exception as e:
+                                logger.warning(f"[AI_CHAT] Failed to extract content from {fid}: {e}")
+                                parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract content from this file]'})
+                        else:
+                            try:
+                                content = extract_text(file_path)
+                                parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{content}'})
+                            except Exception as e:
+                                logger.warning(f"[AI_CHAT] Failed to extract text from {fid}: {e}")
+                                parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract text from this file]'})
 
             if has_images:
                 parts.insert(0, {'type': 'text', 'text': user_text})

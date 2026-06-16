@@ -28,6 +28,7 @@ Usage:
 import csv
 import io
 import json
+import os
 import re
 import zipfile
 from html.parser import HTMLParser
@@ -532,6 +533,146 @@ IMAGE_EXTENSIONS: set = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
 
 
 # ---------------------------------------------------------------------------
+# Image extraction helpers (PDF/DOCX)
+# ---------------------------------------------------------------------------
+
+def _extract_pdf_with_images(file_path, conversation_dir, original_filename):
+    import fitz
+    from PIL import Image
+
+    img_dir = os.path.join(conversation_dir, original_filename)
+
+    if os.path.exists(img_dir) and any(f.endswith('.png') for f in os.listdir(img_dir)):
+        image_paths = sorted([
+            os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith('.png')
+        ])
+        text = extract_text(file_path)
+        return {"text": text, "image_paths": image_paths}
+
+    doc = fitz.open(file_path)
+    try:
+        text_parts = []
+        image_paths = []
+        img_count = 0
+        max_images = 20
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            text_parts.append(text)
+
+            image_list = page.get_images(full=True)
+            page_image_paths = []
+
+            for img_index, img in enumerate(image_list):
+                if img_count >= max_images:
+                    logger.warning(
+                        f"Reached max images ({max_images}) for {original_filename}"
+                    )
+                    break
+
+                xref = img[0]
+                try:
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+
+                    pil_img = Image.open(io.BytesIO(image_bytes))
+                    if pil_img.width < 100 or pil_img.height < 100:
+                        continue
+
+                    if pil_img.mode != 'RGB':
+                        pil_img = pil_img.convert('RGB')
+
+                    os.makedirs(img_dir, exist_ok=True)
+                    img_filename = f"page{page_num + 1}_img{img_index}.png"
+                    img_path = os.path.join(img_dir, img_filename)
+                    pil_img.save(img_path, 'PNG')
+
+                    page_image_paths.append(img_path)
+                    image_paths.append(img_path)
+                    img_count += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to extract image xref={xref} "
+                        f"from {original_filename}: {e}"
+                    )
+                    continue
+
+            for img_path in page_image_paths:
+                img_basename = os.path.basename(img_path)
+                text_parts.append(f"\n[IMAGE: {img_basename}]")
+
+        full_text = '\n'.join(text_parts)
+        return {"text": clean_text(full_text), "image_paths": image_paths}
+    finally:
+        doc.close()
+
+
+def _extract_docx_with_images(file_path, conversation_dir, original_filename):
+    from PIL import Image
+
+    img_dir = os.path.join(conversation_dir, original_filename)
+
+    if os.path.exists(img_dir) and any(f.endswith('.png') for f in os.listdir(img_dir)):
+        image_paths = sorted([
+            os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith('.png')
+        ])
+        text = extract_text(file_path)
+        return {"text": text, "image_paths": image_paths}
+
+    _check_zip_bomb(file_path)
+
+    image_paths = []
+    img_count = 0
+    max_images = 20
+
+    with zipfile.ZipFile(file_path) as zf:
+        media_files = [
+            f for f in zf.namelist()
+            if f.startswith('word/media/')
+            and any(f.lower().endswith(ext) for ext in
+                    ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'])
+        ]
+
+        for media_file in media_files:
+            if img_count >= max_images:
+                logger.warning(
+                    f"Reached max images ({max_images}) for {original_filename}"
+                )
+                break
+
+            try:
+                img_bytes = zf.read(media_file)
+                pil_img = Image.open(io.BytesIO(img_bytes))
+
+                if pil_img.width < 100 or pil_img.height < 100:
+                    continue
+
+                if pil_img.mode != 'RGB':
+                    pil_img = pil_img.convert('RGB')
+
+                os.makedirs(img_dir, exist_ok=True)
+                img_filename = os.path.splitext(os.path.basename(media_file))[0] + '.png'
+                img_path = os.path.join(img_dir, img_filename)
+                pil_img.save(img_path, 'PNG')
+
+                image_paths.append(img_path)
+                img_count += 1
+            except Exception as e:
+                logger.warning(
+                    f"Failed to extract image {media_file} "
+                    f"from {original_filename}: {e}"
+                )
+                continue
+
+    from docx import Document
+    doc = Document(file_path)
+    text = _extract_docx_core(doc)
+
+    return {"text": text, "image_paths": image_paths}
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -610,3 +751,39 @@ def is_supported(filename: str) -> bool:
 def is_image(filename: str) -> bool:
     """Check if a filename is a supported image type."""
     return Path(filename).suffix.lower() in IMAGE_EXTENSIONS
+
+
+def extract_content(file_path: str, conversation_dir: str, original_filename: str) -> Dict[str, any]:
+    """
+    Extract text and embedded images from a file.
+
+    For PDF/DOCX files, extracts embedded images alongside text.
+    Images are saved to ``{conversation_dir}/{original_filename}/`` as PNG.
+    For image files (jpg/png/gif/webp), returns the file path as-is
+    with empty text.  For other supported text formats, returns only text.
+
+    Args:
+        file_path: Path to the source file.
+        conversation_dir: Directory of the chat conversation.
+        original_filename: Original filename (without UUID prefix),
+                          used as the image subfolder name.
+
+    Returns:
+        dict with keys:
+            - ``text``: extracted and cleaned text (str)
+            - ``image_paths``: list of absolute paths to extracted images (list[str])
+
+    Raises:
+        ValueError: If the file type is not supported.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext in IMAGE_EXTENSIONS:
+        return {"text": "", "image_paths": [file_path]}
+    if ext == '.pdf':
+        return _extract_pdf_with_images(file_path, conversation_dir, original_filename)
+    if ext == '.docx':
+        return _extract_docx_with_images(file_path, conversation_dir, original_filename)
+    if ext in EXTENSION_MAP:
+        text = extract_text(file_path)
+        return {"text": text, "image_paths": []}
+    raise ValueError(f"Unsupported file type: {ext}")

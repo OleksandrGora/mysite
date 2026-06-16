@@ -1,6 +1,8 @@
 import os
+import re
 import json
 import uuid
+import base64
 import shutil
 import traceback
 from datetime import datetime, timezone
@@ -8,7 +10,7 @@ from flask import request, jsonify, render_template, current_app, send_file, ses
 from loguru import logger
 from . import my_ai_chat_bp
 from common_config import load_llm_config, get_ai_response, sanitize_settings_for_client, login_required
-from txt_processor import extract_text, IMAGE_EXTENSIONS
+from txt_processor import extract_text, extract_content, IMAGE_EXTENSIONS
 
 CHATS_ROOT = os.path.join(
     os.getenv('DATA_DIR', '/home/openclaw/mysite/data'),
@@ -366,9 +368,72 @@ def send_message(chat_id):
         if chat.get('system_message'):
             context.append({'role': 'system', 'content': chat['system_message']})
 
+        FILE_MARKER_RE = re.compile(r'^\[Файли:\s*(.+?)\]\s*$', re.MULTILINE)
+
         for msg in chat['messages']:
             role = 'user' if msg['sender'] == 'user' else 'assistant'
-            context.append({'role': role, 'content': msg['text']})
+            text = msg['text']
+            marker_match = FILE_MARKER_RE.search(text)
+            if marker_match and role == 'user':
+                user_text_before = FILE_MARKER_RE.sub('', text).strip()
+                file_ids_str = marker_match.group(1)
+                hist_file_ids = [fid.strip() for fid in file_ids_str.split(',') if fid.strip()]
+                chat_dir = _get_chat_dir(chat_id)
+                files_dir = os.path.join(chat_dir, 'files')
+                parts = []
+                has_images = False
+                for fid in hist_file_ids:
+                    safe_fid = os.path.basename(os.path.normpath(fid))
+                    file_path = os.path.join(files_dir, safe_fid)
+                    if os.path.exists(file_path):
+                        ext = os.path.splitext(fid)[1].lower()
+                        if ext in IMAGE_EXTENSIONS:
+                            has_images = True
+                            with open(file_path, 'rb') as f:
+                                b64 = base64.b64encode(f.read()).decode('utf-8')
+                            mime = 'image/jpeg' if ext in ('.jpg', '.jpeg') else ('image/png' if ext == '.png' else ('image/gif' if ext == '.gif' else 'image/webp'))
+                            parts.append({
+                                'type': 'image_url',
+                                'image_url': {'url': f'data:{mime};base64,{b64}'}
+                            })
+                        else:
+                            display_name = fid.split('_', 1)[1] if '_' in fid else fid
+                            if ext in ('.pdf', '.docx'):
+                                try:
+                                    result = extract_content(file_path, chat_dir, display_name)
+                                    text_content = result["text"]
+                                    image_paths = result["image_paths"]
+                                    parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{text_content}'})
+                                    for img_path in image_paths:
+                                        if os.path.exists(img_path):
+                                            with open(img_path, 'rb') as img_file:
+                                                b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                                            parts.append({
+                                                'type': 'image_url',
+                                                'image_url': {'url': f'data:image/png;base64,{b64}'}
+                                            })
+                                    has_images = True
+                                except Exception as e:
+                                    logger.warning(f"[AI_CHAT] Failed to extract content from historical file {fid}: {e}")
+                                    parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract content from this file]'})
+                            else:
+                                try:
+                                    content = extract_text(file_path)
+                                    parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{content}'})
+                                except Exception as e:
+                                    logger.warning(f"[AI_CHAT] Failed to extract text from historical file {fid}: {e}")
+                                    parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n[Failed to extract text from this file]'})
+                if has_images:
+                    parts.insert(0, {'type': 'text', 'text': user_text_before})
+                    context.append({'role': role, 'content': parts})
+                else:
+                    file_text = ''
+                    for p in parts:
+                        if p['type'] == 'text':
+                            file_text += p['text']
+                    context.append({'role': role, 'content': user_text_before + file_text})
+            else:
+                context.append({'role': role, 'content': text})
 
         # Build user content with files
         user_content = user_text
@@ -384,7 +449,6 @@ def send_message(chat_id):
                     ext = os.path.splitext(fid)[1].lower()
                     if ext in IMAGE_EXTENSIONS:
                         has_images = True
-                        import base64
                         with open(file_path, 'rb') as f:
                             b64 = base64.b64encode(f.read()).decode('utf-8')
                         mime = 'image/jpeg' if ext in ('.jpg', '.jpeg') else ('image/png' if ext == '.png' else ('image/gif' if ext == '.gif' else 'image/webp'))
@@ -398,15 +462,12 @@ def send_message(chat_id):
 
                         if ext in ('.pdf', '.docx'):
                             try:
-                                from txt_processor import extract_content
-                                chat_dir = _get_chat_dir(chat_id)
                                 result = extract_content(file_path, chat_dir, display_name)
                                 text = result["text"]
                                 image_paths = result["image_paths"]
 
                                 parts.append({'type': 'text', 'text': f'\n\n--- {display_name} ---\n{text}'})
 
-                                import base64
                                 for img_path in image_paths:
                                     if os.path.exists(img_path):
                                         with open(img_path, 'rb') as img_file:

@@ -101,7 +101,7 @@
       <div id="chat-window"></div>
       <div id="file-preview"></div>
       <div class="input-area">
-        <input type="file" id="file-input" multiple accept="image/*,.txt,.md,.csv" style="display:none">
+        <input type="file" id="file-input" multiple accept="image/*,.txt,.md,.csv,.html,.json,.pdf,.doc,.docx,.pptx,.xlsx" style="display:none">
         <button id="file-btn" type="button" title="Прикріпити файл" style="background:none;border:none;cursor:pointer;font-size:20px;color:#3498db;padding:8px"><i class="fas fa-paperclip"></i></button>
         <textarea id="user-input" placeholder="Введіть ваш запит..."></textarea>
         <button id="send-btn">Надіслати</button>
@@ -394,13 +394,15 @@
 
     // ========== File handlers ==========
     const SUPPORTED_IMAGE_TYPES = ['image/jpeg','image/png','image/gif','image/webp'];
-    const SUPPORTED_TEXT_TYPES = ['text/plain','text/markdown','text/csv','text/html'];
+    const SUPPORTED_DOCUMENT_MIMES = ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+    const SUPPORTED_TEXT_EXTS = ['txt','md','csv','html','json'];
 
     function getFileCategory(file) {
       if (SUPPORTED_IMAGE_TYPES.includes(file.type)) return 'image';
       const ext = file.name.split('.').pop().toLowerCase();
       if (['jpg','jpeg','png','gif','webp'].includes(ext)) return 'image';
-      if (['txt','md','csv','html'].includes(ext)) return 'text';
+      if (SUPPORTED_TEXT_EXTS.includes(ext)) return 'text';
+      if (SUPPORTED_DOCUMENT_MIMES.includes(file.type) || ['pdf','doc','docx','pptx','xlsx'].includes(ext)) return 'document';
       return null;
     }
 
@@ -436,7 +438,7 @@
           chip.appendChild(img);
         } else {
           const icon = document.createElement('i');
-          icon.className = 'fas fa-file-alt';
+          icon.className = file.category === 'document' ? 'fas fa-file' : 'fas fa-file-alt';
           icon.style.color = '#3498db';
           chip.appendChild(icon);
         }
@@ -458,6 +460,7 @@
         const fd = { name: file.name, type: file.type, category };
         if (category === 'image') fd.dataUrl = await readFileAsDataURL(file);
         else if (category === 'text') fd.textContent = await readFileAsText(file);
+        else if (category === 'document') fd.rawFile = file;
         sessionFiles.push(fd);
       }
       event.target.value = '';
@@ -491,7 +494,10 @@
         // Upload files first
         const fileIds = [];
         for (const file of sessionFiles) {
-          const blob = file.category === 'image' ? dataURLtoBlob(file.dataUrl) : new Blob([file.textContent], {type: 'text/plain'});
+          let blob;
+          if (file.category === 'image') blob = dataURLtoBlob(file.dataUrl);
+          else if (file.category === 'document') blob = file.rawFile;
+          else blob = new Blob([file.textContent], {type: 'text/plain'});
           const formData = new FormData();
           formData.append('file', blob, file.name);
           formData.append('chat_id', currentChatId);

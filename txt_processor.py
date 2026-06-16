@@ -178,7 +178,11 @@ def _extract_docx_core(doc) -> str:
     for para in doc.paragraphs:
         t = para.text.strip()
         if t:
-            paragraphs.append(t)
+            style_name = para.style.name if para.style else ''
+            if style_name.startswith('Heading'):
+                paragraphs.append(f"=== {t} ===\n")
+            else:
+                paragraphs.append(t)
     for table in doc.tables:
         rows = []
         for row in table.rows:
@@ -200,10 +204,10 @@ def _extract_pdf(file_path: str) -> str:
             page = doc[page_num]
             text = page.get_text()
             total_chars += len(text.strip())
-            if text.strip():
-                pages.append(text)
+            pages.append(f"=== Сторінка {page_num + 1} ===\n{text}")
 
-        avg_chars = total_chars / max(len(pages), 1)
+        non_empty = [p for p in pages if p.strip()]
+        avg_chars = total_chars / max(len(non_empty), 1)
         if avg_chars < 100:
             ocr_text = _try_ocr_fallback(file_path)
             if ocr_text:
@@ -220,8 +224,7 @@ def _extract_pdf_core(doc) -> str:
     for page_num in range(len(doc)):
         page = doc[page_num]
         text = page.get_text()
-        if text.strip():
-            pages.append(text)
+        pages.append(f"=== Сторінка {page_num + 1} ===\n{text}")
     return clean_text('\n\n'.join(pages))
 
 
@@ -559,7 +562,7 @@ def _extract_pdf_with_images(file_path, conversation_dir, original_filename):
         for page_num in range(len(doc)):
             page = doc[page_num]
             text = page.get_text()
-            text_parts.append(text)
+            text_parts.append(f"=== Сторінка {page_num + 1} ===\n{text}")
 
             image_list = page.get_images(full=True)
             page_image_paths = []

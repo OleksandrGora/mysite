@@ -269,7 +269,8 @@ def create_chat():
             'updated_at': now,
             'system_message': data.get('system_message', ''),
             'messages': [],
-            'previous_response_id': None
+            'previous_response_id': None,
+            'total_tokens': 0
         }
         _save_chat(chat_id, chat)
         logger.info(f"[AI_CHAT] Chat created: {chat_id} ({chat['name']})")
@@ -513,13 +514,13 @@ def send_message(chat_id):
         instructions = chat.get('system_message') or None
         logger.debug(f"[AI_CHAT] Calling get_ai_response for chat {chat_id}, context_len={len(context)}")
         logger.debug(f"[AI_CHAT] Request context: {json.dumps(context, ensure_ascii=False)[:1000]}")
-        response_text, resp_id = get_ai_response(
+        response_text, resp_id, tokens_used = get_ai_response(
             context, provider, model,
             instructions=instructions,
             chat_data=chat
         )
 
-        logger.info(f"[AI_CHAT] AI response received for chat {chat_id}: text_len={len(response_text)}, resp_id={resp_id}")
+        logger.info(f"[AI_CHAT] AI response received for chat {chat_id}: text_len={len(response_text)}, resp_id={resp_id}, tokens={tokens_used}")
         logger.debug(f"[AI_CHAT] Response text (first 500): {response_text[:500]!r}")
 
         # Add bot message
@@ -531,6 +532,14 @@ def send_message(chat_id):
 
         if resp_id:
             chat['previous_response_id'] = resp_id
+
+        # Accumulate token usage (fallback to estimation if provider didn't return usage)
+        new_tokens = (tokens_used.get('total_tokens', 0) or 0)
+        if new_tokens == 0:
+            input_text = json.dumps(context, ensure_ascii=False)
+            new_tokens = len(input_text) // 4 + len(response_text) // 4
+        prev_tokens = chat.get('total_tokens', 0) or 0
+        chat['total_tokens'] = prev_tokens + new_tokens
 
         chat['updated_at'] = datetime.now(timezone.utc).isoformat()
         _save_chat(chat_id, chat)

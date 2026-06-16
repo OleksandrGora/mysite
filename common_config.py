@@ -395,7 +395,14 @@ def call_openai_responses_api(input_data, api_key, model, instructions=None, pre
         if output_text is None:
             output_text = ""
     logger.info(f"[call_openai_responses_api] Response text (first 200): {output_text[:200]!r}")
-    return output_text, data.get("id")
+    usage = data.get("usage") or {}
+    tokens_used = {
+        'input_tokens': usage.get('input_tokens', 0),
+        'output_tokens': usage.get('output_tokens', 0),
+        'total_tokens': usage.get('total_tokens', 0)
+    }
+    logger.info(f"[call_openai_responses_api] Usage: {tokens_used}")
+    return output_text, data.get("id"), tokens_used
 
 
 def call_openai_compatible_api(context, api_url, api_key, model):
@@ -422,7 +429,14 @@ def call_openai_compatible_api(context, api_url, api_key, model):
             error_body = str(response.content)
         raise requests.HTTPError(f"{e}. Response body: {error_body}", response=response)
     data = response.json()
-    return data["choices"][0]["message"]["content"]
+    text = data["choices"][0]["message"]["content"]
+    usage = data.get("usage") or {}
+    tokens_used = {
+        'input_tokens': usage.get('prompt_tokens', 0),
+        'output_tokens': usage.get('completion_tokens', 0),
+        'total_tokens': usage.get('total_tokens', 0)
+    }
+    return text, tokens_used
 
 
 def call_gemini_api(context, provider, model):
@@ -474,7 +488,14 @@ def call_gemini_api(context, provider, model):
     response.raise_for_status()
     data = response.json()
 
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    usage_meta = data.get("usageMetadata") or {}
+    tokens_used = {
+        'input_tokens': usage_meta.get('promptTokenCount', 0) or usage_meta.get('prompt_token_count', 0),
+        'output_tokens': usage_meta.get('candidatesTokenCount', 0) or usage_meta.get('candidates_token_count', 0),
+        'total_tokens': usage_meta.get('totalTokenCount', 0) or usage_meta.get('total_token_count', 0)
+    }
+    return text, tokens_used
 
 
 def get_ai_response(context, provider, model, instructions=None, chat_data=None, max_retries=3):
@@ -490,15 +511,15 @@ def get_ai_response(context, provider, model, instructions=None, chat_data=None,
         max_retries: Number of retries on transient errors
 
     Returns:
-        tuple: (response_text, previous_response_id)
+        tuple: (response_text, previous_response_id, tokens_used)
     """
     provider_type = provider.get("type")
 
     if provider_type == "gemini":
         for attempt in range(max_retries):
             try:
-                result = call_gemini_api(context, provider, model), None
-                return result
+                text, tokens_used = call_gemini_api(context, provider, model)
+                return text, None, tokens_used
             except requests.HTTPError as e:
                 if '503' in str(e) and attempt < max_retries - 1:
                     logger.warning(f"Gemini 503 error, retrying ({attempt + 1}/{max_retries})...")
@@ -528,13 +549,13 @@ def get_ai_response(context, provider, model, instructions=None, chat_data=None,
                             content = _convert_to_responses_format(content)
                         input_data.append({"role": m["role"], "content": content})
 
-                text, resp_id = call_openai_responses_api(
+                text, resp_id, tokens_used = call_openai_responses_api(
                     input_data, provider["apiKey"], model["apiModel"],
                     instructions=instructions,
                     previous_response_id=previous_response_id,
                     api_url=provider.get("apiUrl")
                 )
-                return text, resp_id
+                return text, resp_id, tokens_used
             except requests.HTTPError as e:
                 if '503' in str(e) and attempt < max_retries - 1:
                     logger.warning(f"OpenAI 503 error, retrying ({attempt + 1}/{max_retries})...")
@@ -546,10 +567,10 @@ def get_ai_response(context, provider, model, instructions=None, chat_data=None,
     elif provider_type == "openai-compatible":
         for attempt in range(max_retries):
             try:
-                result = call_openai_compatible_api(
+                text, tokens_used = call_openai_compatible_api(
                     context, provider["apiUrl"], provider["apiKey"], model["apiModel"]
-                ), None
-                return result
+                )
+                return text, None, tokens_used
             except requests.HTTPError as e:
                 if '503' in str(e) and attempt < max_retries - 1:
                     logger.warning(f"OpenAI-compatible 503 error, retrying ({attempt + 1}/{max_retries})...")

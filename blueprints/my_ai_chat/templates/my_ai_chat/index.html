@@ -91,7 +91,7 @@
       </div>
       <select id="model-select"></select>
       <div class="token-info">
-        <div><label>Message Size (tokens):</label> <span id="token-count" style="font-family:monospace">0</span></div>
+        <div><label>Токенів використано:</label> <span id="token-count" style="font-family:monospace">0</span></div>
       </div>
       <button id="new-chat">Новий чат</button>
       <textarea id="system-message" placeholder="Системний промпт..."></textarea>
@@ -122,20 +122,8 @@
     let sessionFiles = [];
 
     // ========== Token counting ==========
-    function countTokens(messages) {
-      let total = 0;
-      const perMsg = 3, perName = 1;
-      for (const msg of messages) {
-        total += perMsg;
-        let content = typeof msg.content === 'string' ? msg.content : '';
-        total += Math.ceil(content.length / 4);
-        if (msg.name) total += perName;
-      }
-      return total;
-    }
-
-    function updateTokenDisplay(context) {
-      document.getElementById('token-count').textContent = countTokens(context);
+    function updateTokenCount(total) {
+      document.getElementById('token-count').textContent = Number(total || 0).toLocaleString();
     }
 
     // ========== Model selector ==========
@@ -212,6 +200,7 @@
         renderChatList();
         document.getElementById('system-message').value = chat.system_message || '';
         updateTokenDisplayForChat(chat);
+        document.getElementById('user-input').focus();
       } catch(e) { console.error('Failed to load chat:', e); }
     }
 
@@ -226,10 +215,7 @@
     }
 
     function updateTokenDisplayForChat(chat) {
-      const context = [];
-      if (chat.system_message) context.push({ role: 'system', content: chat.system_message });
-      for (const m of chat.messages) context.push({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text });
-      updateTokenDisplay(context);
+      updateTokenCount(chat.total_tokens || 0);
     }
 
     // ========== Chat list ==========
@@ -377,6 +363,7 @@
     function hideLoading() {
       document.getElementById('send-btn').disabled = false;
       document.getElementById('user-input').disabled = false;
+      document.getElementById('user-input').focus();
       document.getElementById('model-select').disabled = false;
       const el = document.getElementById('loading-indicator-msg');
       if (el) el.remove();
@@ -516,6 +503,9 @@
         if (result.error) {
           showError(result.error);
         } else {
+          if (result.chat && result.chat.total_tokens !== undefined) {
+            updateTokenCount(result.chat.total_tokens);
+          }
           if (result.response.includes('formula:')) {
             const formula = result.response.replace('formula:','').trim();
             appendMessage(chatWindow, 'bot', formula, 'formula');
@@ -594,6 +584,7 @@
       autoResizeTextarea(document.getElementById('user-input'));
       autoResizeTextarea(document.getElementById('system-message'));
       loadChats();
+      document.getElementById('user-input').focus();
     });
   </script>
 </body>

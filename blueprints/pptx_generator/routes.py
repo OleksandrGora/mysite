@@ -786,7 +786,7 @@ def suggest_design():
                     {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ]
-                result_text, _ = get_ai_response(context, text_provider, text_model)
+                result_text, _, _ = get_ai_response(context, text_provider, text_model)
 
                 # Estimate tokens
                 full_prompt = f"{DESIGN_SYSTEM_PROMPT}\n\n{user_prompt}"
@@ -892,7 +892,7 @@ def fix_json_with_llm(raw_text):
 
         # Use shared get_ai_response function
         context = [{"role": "user", "content": prompt}]
-        response_text, _ = get_ai_response(context, text_provider, text_model)
+        response_text, _, _ = get_ai_response(context, text_provider, text_model)
 
         logger.debug(f"LLM raw response (first 200): {response_text[:200]}")
 

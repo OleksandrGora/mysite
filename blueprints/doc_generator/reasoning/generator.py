@@ -136,7 +136,7 @@ def call_llm(
         model_config = {"apiModel": actual_model}
 
         # Use shared get_ai_response function
-        markdown_text, _ = get_ai_response(context, provider, model_config)
+        markdown_text, _, _ = get_ai_response(context, provider, model_config)
         markdown_text = markdown_text.strip()
 
         if not markdown_text:

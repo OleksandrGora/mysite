@@ -575,10 +575,8 @@ def run_report(config: Optional[dict] = None, force: bool = False) -> dict:
 
     semester = get_semester()
     if not semester:
-        msg = 'Канікули — звіт не потрібен'
-        logger.info(f"Moodle reporter: {msg}")
-        send_telegram(f'📚 НУБіП — {msg}', bot_token, chat_ids)
-        return {'success': True, 'report': msg, 'error': None}
+        logger.info("Moodle reporter: канікули, звіт не надсилаємо")
+        return {'success': True, 'report': '', 'error': None}
 
     logger.info(f"Moodle reporter: {semester['label']}")
 

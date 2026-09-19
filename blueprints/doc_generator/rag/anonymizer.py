@@ -2,7 +2,8 @@
 Anonymizer — анонімізація/деанонімізація промптів перед відправкою в LLM.
 
 Використовує:
-- Regex: телефони, адреси, номери документів, email, URL, ФОП
+- Regex: телефони, адреси, номери документів, email, URL, ФОП,
+  юрособи, трекінг-номери, бренди, коди товарів
 - spaCy (xx_ent_wiki_sm): імена людей, організації
 
 Типове використання:
@@ -22,7 +23,8 @@ from typing import Dict
 class Anonymizer:
     """
     Анонімізатор з двома етапами:
-      1️⃣ Regex-патерни (телефони, адреси, email, URL, номери документів, ФОП)
+      1️⃣ Regex-патерни (телефони, адреси, email, URL, номери документів, ФОП,
+         юрособи, трекінг-номери, бренди, коди товарів)
       2️⃣ spaCy NER (PERSON, ORG)
 
     Кожен знайдений елемент замінюється на плейсхолдер [КАТЕГОРІЯ_N],
@@ -39,6 +41,9 @@ class Anonymizer:
         "URL": 0,
         "FOP": 0,
         "LEGAL_ORG": 0,
+        "TRACKING": 0,
+        "BRAND": 0,
+        "PRODUCT_CODE": 0,
     })
     _nlp: object = field(default=None, init=False)
 
@@ -78,6 +83,36 @@ class Anonymizer:
             r'(?:,\s*\d+[А-ЯA-Z]?(?:\s*/\s*\d+[А-ЯA-Z]?)?)?'
             r'(?:,\s*(?:поверх|пов\.|кв\.|офіс|буд\.|корп\.)\s*\d+[А-ЯA-Z]?)?',
             re.IGNORECASE
+        )),
+        ("TRACKING", re.compile(
+            r'\b1Z[0-9A-Z]{16}\b'  # UPS
+            r'|\b[A-Z]{2}\d{9}[A-Z]{2}\b'  # EMS/International/FedEx Express
+            r'|\b\d{15}\b'  # FedEx Ground (15 digits)
+        )),
+        ("BRAND", re.compile(
+            r'\b(?:'
+            r'Samsung|Apple|Xiaomi|Huawei|Sony|LG(?!\s*[Ee]lectronics)|Dell|HP|'
+            r'Lenovo|Asus|Acer|Microsoft|Google|Nokia|Motorola|'
+            r'OnePlus|Realme|Oppo|Vivo|Honor|Panasonic|Toshiba|'
+            r'Canon|Nikon|Bose|JBL|Philips|Intel|AMD|NVIDIA|'
+            r'Corsair|Logitech|Razer|Adidas|Nike|Puma|Reebok|Zara|'
+            r'Gucci|Prada|Chanel|Rolex|Casio|Seiko|Timex|'
+            r'Ray-Ban|Oakley|Bosch|Siemens|Whirlpool|Electrolux|'
+            r'Miele|Dyson|iRobot|KitchenAid|Nespresso|Tefal|'
+            r'Lego|Hasbro|Mattel|Fisher-Price|Tommy\s+Hilfiger|'
+            r'Calvin\s+Klein|Armani|Versace|Dior|Burberry|'
+            r'Hermes(?!\s*Agent)|Fendi|Yves\s+Saint\s+Laurent|'
+            r'Balenciaga|Moncler|North\s+Face|Columbia|'
+            r'Under\s+Armour|New\s+Balance|Converse|Vans|'
+            r'Timberland|Stanley|Thermos|Zojirushi|'
+            r'Gillette|Oral-B|Braun'
+            r')\b',
+            re.IGNORECASE
+        )),
+        ("PRODUCT_CODE", re.compile(
+            r'\b(?:Model|SKU|P/N|M/N|Part\s*No|Style|Code|Артикул|Арт)[:\s#]+[A-Za-z0-9][A-Za-z0-9/\-]{2,25}\b'
+            r'|\b[A-Z]{2,4}[-][A-Za-z0-9]{3,8}\b'
+            r'|\b[A-Z]{2,4}\d{1,2}[-][A-Za-z0-9]{3,6}\b'
         )),
     ]
 

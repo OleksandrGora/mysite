@@ -196,6 +196,10 @@ def get_moodle_token(email: str, password: str, moodle_url: str) -> Optional[str
         return None
 
 
+class MoodleInvalidTokenError(Exception):
+    """Raised when Moodle API returns 'invalidtoken' error code."""
+
+
 def moodle_api_call(token: str, wsfunction: str, moodle_url: str, params: Optional[dict] = None) -> dict:
     """Універсальний виклик Moodle REST API."""
     url = f'{moodle_url}/webservice/rest/server.php'
@@ -211,7 +215,11 @@ def moodle_api_call(token: str, wsfunction: str, moodle_url: str, params: Option
     resp.raise_for_status()
     result = resp.json()
     if isinstance(result, dict) and result.get('errorcode'):
-        raise Exception(f"Moodle API error: {result.get('errorcode')}: {result.get('message', result.get('error', ''))}")
+        errorcode = result.get('errorcode')
+        message = result.get('message', result.get('error', ''))
+        if errorcode == 'invalidtoken':
+            raise MoodleInvalidTokenError(f"Moodle API error: {errorcode}: {message}")
+        raise Exception(f"Moodle API error: {errorcode}: {message}")
     return result
 
 
@@ -597,51 +605,70 @@ def run_report(config: Optional[dict] = None, force: bool = False) -> dict:
             except Exception as e:
                 logger.warning(f"Moodle reporter: не вдалось зберегти токен: {e}")
 
-        # Отримуємо курси
-        courses = get_courses(token, moodle_url)
-        if not courses:
-            send_telegram('Курсів не знайдено', bot_token, chat_ids)
-            return {'success': True, 'report': 'Курсів не знайдено', 'error': None}
-
-        course_data = []
-        for c in courses:
-            if c.get('hidden'):
-                continue
-            items = []
-
-            # Завдання
-            assignments = get_assignments(c['id'], token, moodle_url)
-            for a in assignments:
-                item = classify(a, semester, False)
-                if classify_item(item) == 'hide':
-                    continue
-                if a.get('nosubmissions'):
-                    continue
-                if is_submitted(a['id'], token, moodle_url):
-                    continue
-                items.append(item)
-
-            # Тести
+        # --- Цикл з ретраєм на випадок невалідного токена ---
+        for attempt in range(2):
             try:
-                quizzes = get_quizzes(c['id'], token, moodle_url)
-                for q in quizzes:
-                    item = classify(q, semester, True)
-                    if classify_item(item) == 'hide':
-                        continue
-                    name = q.get('name', '')
-                    if is_quiz_attempted(q['id'], token, moodle_url):
-                        kind = 'Модуль' if detect_type(name) == 'module' else 'Тест'
-                        logger.debug(f"{kind} '{name}' вже пройдено, пропускаємо")
-                        continue
-                    items.append(item)
-            except Exception:
-                pass
+                # Отримуємо курси
+                courses = get_courses(token, moodle_url)
+                if not courses:
+                    send_telegram('Курсів не знайдено', bot_token, chat_ids)
+                    return {'success': True, 'report': 'Курсів не знайдено', 'error': None}
 
-            if items:
-                course_data.append({
-                    'name': c.get('fullname', ''),
-                    'items': items,
-                })
+                course_data = []
+                for c in courses:
+                    if c.get('hidden'):
+                        continue
+                    items = []
+
+                    # Завдання
+                    assignments = get_assignments(c['id'], token, moodle_url)
+                    for a in assignments:
+                        item = classify(a, semester, False)
+                        if classify_item(item) == 'hide':
+                            continue
+                        if a.get('nosubmissions'):
+                            continue
+                        if is_submitted(a['id'], token, moodle_url):
+                            continue
+                        items.append(item)
+
+                    # Тести
+                    try:
+                        quizzes = get_quizzes(c['id'], token, moodle_url)
+                        for q in quizzes:
+                            item = classify(q, semester, True)
+                            if classify_item(item) == 'hide':
+                                continue
+                            name = q.get('name', '')
+                            if is_quiz_attempted(q['id'], token, moodle_url):
+                                kind = 'Модуль' if detect_type(name) == 'module' else 'Тест'
+                                logger.debug(f"{kind} '{name}' вже пройдено, пропускаємо")
+                                continue
+                            items.append(item)
+                    except MoodleInvalidTokenError:
+                        raise
+                    except Exception:
+                        pass
+
+                    if items:
+                        course_data.append({
+                            'name': c.get('fullname', ''),
+                            'items': items,
+                        })
+
+                break  # Успішно, виходимо з ретрай-циклу
+
+            except MoodleInvalidTokenError:
+                if attempt == 1:
+                    raise  # Вже одна спроба ретраю, кидаємо далі
+                logger.warning("Moodle reporter: токен невалідний, виконуємо повторну авторизацію...")
+                from .config_manager import save_config as _save_cfg
+                token = get_moodle_token(email, password, moodle_url)
+                if not token:
+                    raise Exception('Не вдалося отримати Moodle API token після повторної авторизації')
+                _save_cfg({'moodle_token': token})
+                config['moodle_token'] = token
+                logger.info("Moodle reporter: новий токен отримано та збережено, повторюємо запит...")
 
         report_text = build_report(course_data)
 
